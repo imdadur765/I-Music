@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.example.i_music">
+
+    <!-- 🎵 AUDIO & STORAGE PERMISSIONS -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    
+    <!-- ✅ CONDITIONAL MANAGE_EXTERNAL_STORAGE - For Android 11+ only -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" 
+        tools:ignore="ScopedStorage" />
+    
+    <!-- 🔔 NOTIFICATION PERMISSIONS -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    
+    <!-- ⚡ PERFORMANCE PERMISSIONS -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- 📱 HARDWARE FEATURES -->
+    <uses-feature
+        android:name="android.hardware.audio.output"
+        android:required="true" />
+
+    <!-- 🚀 HIGH REFRESH RATE SUPPORT -->
+    <uses-feature
+        android:name="android.hardware.highrefreshrate"
+        android:required="false" />
+
+    <application
+        android:name="${applicationName}"
+        android:label="i_music"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="true"
+        android:theme="@style/LaunchTheme"
+        android:usesCleartextTraffic="true"
+        android:hardwareAccelerated="true"
+        android:supportsRtl="true"
+        android:largeHeap="true"
+        android:requestLegacyExternalStorage="true"
+        android:enableOnBackInvokedCallback="true">
+
+        <!-- 🎵 MAIN ACTIVITY - 120Hz OPTIMIZED -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize"
+            android:resizeableActivity="true"
+            android:supportsPictureInPicture="false"
+            android:turnScreenOn="false">
+
+            <!-- 🚀 HIGH REFRESH RATE METADATA -->
+            <meta-data
+                android:name="android.max_refresh_rate"
+                android:value="120" />
+            <meta-data
+                android:name="android.min_refresh_rate"
+                android:value="60" />
+
+            <!-- 🎯 MAIN INTENT FILTER -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- 🎵 MEDIA INTENTS FOR AUDIO FILES -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file" />
+                <data android:mimeType="audio/*" />
+                <data android:pathPattern=".*\\.mp3" />
+                <data android:pathPattern=".*\\.aac" />
+                <data android:pathPattern=".*\\.ogg" />
+                <data android:pathPattern=".*\\.wav" />
+                <data android:pathPattern=".*\\.m4a" />
+                <data android:pathPattern=".*\\.flac" />
+            </intent-filter>
+
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
+
+            <meta-data
+                android:name="io.flutter.embedding.android.SplashScreenDrawable"
+                android:resource="@drawable/launch_background" />
+        </activity>
+
+        <!-- 🎵 BACKGROUND AUDIO SERVICE - FIXED FOR SWIPE CLOSE -->
+        <service
+             android:name="com.ryanheise.audioservice.AudioService"
+             android:exported="true"
+             android:foregroundServiceType="mediaPlayback"
+             android:stopWithTask="true"
+             android:enabled="true"
+             android:priority="1000"
+             android:isolatedProcess="false"
+             android:taskAffinity=""
+             android:launchMode="singleInstance">
+
+               <intent-filter>
+                  <action android:name="android.media.browse.MediaBrowserService" />
+               </intent-filter>
+    
+            <meta-data
+                android:name="android.service.media.browse.MediaBrowserService"
+                android:value="com.ryanheise.audioservice.MediaBrowser" />
+        </service>
+
+        <!-- 🎵 MEDIA BUTTON RECEIVER -->
+        <receiver
+            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 🔔 NOTIFICATION CHANNELS - ENHANCED -->
+        <meta-data
+            android:name="com.ryanheise.audioservice.NotificationChannelId"
+            android:value="com.imusic.channel.audio" />
+        <meta-data
+            android:name="com.ryanheise.audioservice.NotificationChannelName"
+            android:value="i_music Audio Playback" />
+        <meta-data
+            android:name="com.ryanheise.audioservice.NotificationChannelDescription"
+            android:value="Music playback controls and notifications" />
+        
+        <!-- 🎯 NOTIFICATION CHANNEL IMPORTANCE -->
+        <meta-data
+            android:name="com.ryanheise.audioservice.NotificationChannelImportance"
+            android:value="IMPORTANCE_LOW" />
+        
+        <!-- 🔥 CRITICAL FOR ANDROID 12+ -->
+        <meta-data
+            android:name="com.ryanheise.audioservice.NotificationColor"
+            android:resource="@color/purple_500" />
+        <meta-data
+            android:name="com.ryanheise.audioservice.NotificationIcon"
+            android:resource="@mipmap/ic_launcher" />
+
+        <!-- 📱 FLUTTER EMBEDDING -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
+        <!-- 🚀 PERFORMANCE OPTIMIZATIONS -->
+        <meta-data
+            android:name="android.app.lib_name"
+            android:value="flutter" />
+        <meta-data
+            android:name="android.max_aspect"
+            android:value="2.1" />
+    </application>
+</manifest>

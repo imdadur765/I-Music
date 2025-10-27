@@ -1,0 +1,22 @@
+flutter_native_splash:
+  # 🎨 DARK THEME COLOR (No image needed)
+  color: "#121212"
+  
+  # 📱 ANDROID CONFIG
+  android: true
+  android_12:
+    color: "#121212"
+    #icon: null  # No icon - just color
+  
+  # 📱 IOS CONFIG  
+  ios: true
+  ios_content_mode: center
+  
+  # ❌ WEB NOT SUPPORTED
+  web: false
+  
+  # ⚡ PERFORMANCE OPTIONS
+  image: null  # No image - faster loading
+  background_image: null
+  #dark_mode_image: null
+  branding: null
