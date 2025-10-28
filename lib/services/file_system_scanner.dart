@@ -130,7 +130,6 @@ Future<Song> _fileToSong(File file) async {
       duration: 0, // To be updated if you integrate a metadata parser
       uri: file.uri.toString(),
       albumArt: null,
-      albumId: 0, // ✅ FIX: albumId add kiya with default value 0
     );
   } catch (_) {
     return Song(
@@ -141,7 +140,6 @@ Future<Song> _fileToSong(File file) async {
       duration: 0,
       uri: file.uri.toString(),
       albumArt: null,
-      albumId: 0, // ✅ FIX: albumId add kiya with default value 0
     );
   }
 }

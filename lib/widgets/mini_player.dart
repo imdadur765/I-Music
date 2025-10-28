@@ -1,11 +1,10 @@
-// lib/widgets/mini_player.dart - OPTIMIZED VERSION
+// lib/widgets/mini_player.dart - CLEAN VERSION
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:i_music/providers/app_providers.dart';
+import 'package:i_music/providers/app_providers.dart'; // ✅ SINGLE IMPORT
 import 'package:i_music/main.dart' as main_app;
 import 'package:i_music/models/song_model.dart';
 import 'package:i_music/screens/player_screen.dart';
-import 'cached_artwork.dart'; // ✅ ADDED: Cached artwork import
 
 class MiniPlayer extends ConsumerWidget {
   const MiniPlayer({super.key});
@@ -43,25 +42,28 @@ class MiniPlayer extends ConsumerWidget {
           },
           child: Row(
             children: [
-              // ✅ OPTIMIZED: Album Art with CachedArtwork
+              // Album Art
               Container(
                 width: 50,
                 height: 50,
                 margin: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
+                  color: Colors.deepPurple.shade400,
                   borderRadius: BorderRadius.circular(8),
-                  color: Colors.deepPurple.shade400, // Fallback color
+                  image: (currentSong.albumArt != null && 
+                          currentSong.albumArt!.isNotEmpty &&
+                          !currentSong.albumArt!.startsWith('content://'))
+                      ? DecorationImage(
+                          image: NetworkImage(currentSong.albumArt!),
+                          fit: BoxFit.cover,
+                        )
+                      : null,
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: CachedArtwork(
-                    songId: currentSong.id,
-                    artworkData: currentSong.albumArtBytes,
-                    width: 50,
-                    height: 50,
-                    placeholder: const Icon(Icons.music_note, color: Colors.white, size: 24),
-                  ),
-                ),
+                child: (currentSong.albumArt == null || 
+                        currentSong.albumArt!.isEmpty ||
+                        currentSong.albumArt!.startsWith('content://'))
+                    ? const Icon(Icons.music_note, color: Colors.white, size: 24)
+                    : null,
               ),
 
               // Song Info

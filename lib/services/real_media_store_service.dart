@@ -225,7 +225,6 @@ class RealMediaStoreService {
         final int duration = _parseDuration(map['duration']);
         final String uri = map['uri']?.toString().trim() ?? '';
         final String? albumArt = map['albumArt']?.toString().trim();
-        final int albumId = _parseAlbumId(map['albumId']); // ✅ NEW: Parse albumId
 
         // 🚫 SKIP INVALID ENTRIES
         if (uri.isEmpty || duration <= 0) {
@@ -249,7 +248,6 @@ class RealMediaStoreService {
           duration: duration,
           uri: uri,
           albumArt: albumArt,
-          albumId: albumId, // ✅ FIX: albumId add kiya
           // 🆕 ADDITIONAL METADATA
           genre: map['genre']?.toString(),
           trackNumber: _parseTrackNumber(map['trackNumber']),
@@ -302,17 +300,6 @@ class RealMediaStoreService {
     }
   }
 
-  /// 🆔 PARSE ALBUM ID - ✅ NEW METHOD
-  int _parseAlbumId(dynamic albumId) {
-    try {
-      if (albumId is num) return albumId.toInt();
-      if (albumId is String) return int.tryParse(albumId) ?? 0;
-      return 0;
-    } catch (e) {
-      return 0;
-    }
-  }
-
   /// 🆔 GENERATE FALLBACK ID
   String _generateFallbackId() {
     return 'fallback_${DateTime.now().microsecondsSinceEpoch}';
@@ -329,7 +316,6 @@ class RealMediaStoreService {
         duration: 0,
         uri: '',
         albumArt: null,
-        albumId: 0, // ✅ FIX: albumId add kiya
       ),
       Song(
         id: 'fallback_help',
@@ -339,7 +325,6 @@ class RealMediaStoreService {
         duration: 0,
         uri: '',
         albumArt: null,
-        albumId: 0, // ✅ FIX: albumId add kiya
       ),
     ];
   }
@@ -355,7 +340,6 @@ class RealMediaStoreService {
         duration: 0,
         uri: '',
         albumArt: null,
-        albumId: 0, // ✅ FIX: albumId add kiya
       ),
     ];
   }

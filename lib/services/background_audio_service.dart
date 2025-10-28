@@ -1,12 +1,9 @@
-// lib/services/background_audio_service.dart - FIXED VERSION
-import 'dart:io';
-import 'dart:typed_data';
+// lib/services/background_audio_service.dart - COMPLETE FIXED VERSION
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import '../models/song_model.dart';
-import 'thumbnail_service.dart'; // ✅ FIXED: Use ThumbnailService instead of ArtworkManager
 
 class BackgroundAudioHandler extends BaseAudioHandler {
   final AudioPlayer _player;
@@ -127,6 +124,7 @@ class BackgroundAudioHandler extends BaseAudioHandler {
     }
   }
 
+  // ✅ ADDED: Missing method
   void _handleTrackCompletion() {
     if (_currentIndex < _currentQueue.length - 1) {
       skipToNext();
@@ -136,12 +134,10 @@ class BackgroundAudioHandler extends BaseAudioHandler {
     }
   }
 
-  // ✅ MODIFIED: _updateCurrentMediaItem method - Artwork URI add kiya
-  void _updateCurrentMediaItem() async {
+  // ✅ ADDED: Missing method
+  void _updateCurrentMediaItem() {
     if (_currentIndex < _currentQueue.length && !mediaItem.isClosed) {
-      final song = _currentQueue[_currentIndex];
-      final mediaItemWithArtwork = await _songToMediaItem(song);
-      mediaItem.add(mediaItemWithArtwork);
+      mediaItem.add(_songToMediaItem(_currentQueue[_currentIndex]));
     }
   }
 
@@ -220,7 +216,6 @@ class BackgroundAudioHandler extends BaseAudioHandler {
     }
   }
 
-  // ✅ MODIFIED: setSong method - Artwork preloading add kiya
   Future<void> setSong(Song song, List<Song> queue) async {
     try {
       if (song.uri.isEmpty) throw ArgumentError('Song URI cannot be empty');
@@ -234,12 +229,8 @@ class BackgroundAudioHandler extends BaseAudioHandler {
 
       await _safeStopPlayer();
 
-      // ✅ PRELOAD ARTWORK: Current song ke liye artwork URI prepare karo
-      final currentMediaItem = await _songToMediaItem(song);
-      if (!mediaItem.isClosed) mediaItem.add(currentMediaItem);
-
-      // ✅ PRELOAD ARTWORK: Pure queue ke liye artwork prepare karo (background mein)
-      final mediaItems = await Future.wait(queue.map((s) => _songToMediaItem(s)));
+      final mediaItems = queue.map(_songToMediaItem).toList();
+      if (!mediaItem.isClosed) mediaItem.add(mediaItems[initialIndex]);
       if (!super.queue.isClosed) super.queue.add(mediaItems);
 
       final audioSources = queue.map((s) => AudioSource.uri(Uri.parse(s.uri))).toList();
@@ -267,17 +258,12 @@ class BackgroundAudioHandler extends BaseAudioHandler {
     }
   }
 
-  // ✅ MODIFIED: _executeFallbackPlayback method - Artwork add kiya
   Future<void> _executeFallbackPlayback(Song song) async {
     try {
       debugPrint('🔄 Executing fallback playback for: ${song.title}');
       await _safeStopPlayer();
       await _player.setAudioSource(AudioSource.uri(Uri.parse(song.uri)), preload: true);
-      
-      // ✅ Artwork add karo fallback mein bhi
-      final fallbackMediaItem = await _songToMediaItem(song);
-      if (!mediaItem.isClosed) mediaItem.add(fallbackMediaItem);
-      
+      if (!mediaItem.isClosed) mediaItem.add(_songToMediaItem(song));
       await _player.play();
       debugPrint('✅ Fallback playback successful');
     } catch (fallbackError) {
@@ -285,30 +271,11 @@ class BackgroundAudioHandler extends BaseAudioHandler {
     }
   }
 
-  // ✅ FIXED: _songToMediaItem method - ThumbnailService use karo
-  Future<MediaItem> _songToMediaItem(Song song) async {
+  MediaItem _songToMediaItem(Song song) {
     Uri? artUri;
     try {
-      // ✅ FIXED: ThumbnailService ka use karke artwork URI generate karo
-      if (song.albumArtBytes != null && song.albumArtBytes!.isNotEmpty) {
-        artUri = await ThumbnailService.getArtworkUri(song.id, song.albumArtBytes!);
-      } else if (song.albumArt != null && song.albumArt!.isNotEmpty) {
-        // Agar network URL hai toh woh use karo
-        if (song.albumArt!.startsWith('http')) {
-          artUri = Uri.parse(song.albumArt!);
-        } else if (song.albumId > 0) {
-          // ✅ ENHANCED: Agar local file hai aur albumId available hai, toh ThumbnailService se fetch karo
-          final artworkBytes = await ThumbnailService.getAlbumArtBytes(song.albumId);
-          if (artworkBytes != null && artworkBytes.isNotEmpty) {
-            artUri = await ThumbnailService.getArtworkUri(song.id, artworkBytes);
-          }
-        }
-      } else if (song.albumId > 0) {
-        // ✅ FALLBACK: AlbumId se directly fetch karo
-        final artworkBytes = await ThumbnailService.getAlbumArtBytes(song.albumId);
-        if (artworkBytes != null && artworkBytes.isNotEmpty) {
-          artUri = await ThumbnailService.getArtworkUri(song.id, artworkBytes);
-        }
+      if (song.albumArt != null && song.albumArt!.isNotEmpty) {
+        if (song.albumArt!.startsWith('http')) artUri = Uri.parse(song.albumArt!);
       }
     } catch (e) {
       debugPrint('⚠️ Error parsing album art: $e');
@@ -320,15 +287,12 @@ class BackgroundAudioHandler extends BaseAudioHandler {
       artist: song.artist,
       album: song.album ?? 'Unknown Album',
       duration: Duration(milliseconds: song.duration),
-      artUri: artUri, // ✅ Yahaan system notification ke liye artwork URI set hoga
+      artUri: artUri,
       extras: {
         'uri': song.uri,
         'song_object': song,
         'album': song.album,
         'artist': song.artist,
-        'albumId': song.albumId,
-        'hasThumbnail': song.albumId > 0,
-        'albumArtBytes': song.albumArtBytes,
       },
     );
   }

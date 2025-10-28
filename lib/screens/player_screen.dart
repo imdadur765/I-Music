@@ -1,11 +1,11 @@
-// lib/screens/player_screen.dart - OPTIMIZED VERSION
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:i_music/main.dart' as main_app;
 import 'package:i_music/providers/app_providers.dart';
 import 'package:i_music/models/song_model.dart';
-import '../widgets/cached_artwork.dart'; // ✅ ADDED: Cached artwork import
 
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({super.key});
@@ -101,8 +101,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       );
     }
 
+    // ✅ FIXED: Use PopScope instead of WillPopScope
     return PopScope(
-      canPop: false,
+      canPop: false, // ✅ Yeh important hai - manually handle karo back button
       onPopInvoked: (bool didPop) {
         if (!didPop) {
           debugPrint('🎯 Back button pressed on PlayerScreen - Going back to SongList');
@@ -114,7 +115,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         body: SafeArea(
           child: Column(
             children: [
-              // ✅ App Bar with back button
+              // ✅ App Bar with back button - FIXED
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
                 child: Row(
@@ -148,6 +149,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 ),
               ),
 
+              // ✅ Rest of your existing code remains SAME...
               Expanded(
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
@@ -157,7 +159,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     children: [
                       const SizedBox(height: 5),
 
-                      // ✅ OPTIMIZED: Album Art with CachedArtwork
+                      // Album Art
                       Container(
                         width: MediaQuery.of(context).size.width * 0.8,
                         height: MediaQuery.of(context).size.width * 0.8,
@@ -171,17 +173,37 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                               offset: const Offset(0, 15),
                             ),
                           ],
+                          image: (displaySong.albumArt != null && 
+                                  displaySong.albumArt!.isNotEmpty &&
+                                  !displaySong.albumArt!.startsWith('content://'))
+                              ? DecorationImage(
+                                  image: NetworkImage(displaySong.albumArt!),
+                                  fit: BoxFit.cover,
+                                )
+                              : null,
+                          color: (displaySong.albumArt == null || 
+                                  displaySong.albumArt!.isEmpty ||
+                                  displaySong.albumArt!.startsWith('content://'))
+                              ? Colors.deepPurple.shade400
+                              : null,
+                          gradient: (displaySong.albumArt == null || 
+                                    displaySong.albumArt!.isEmpty ||
+                                    displaySong.albumArt!.startsWith('content://'))
+                              ? LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Colors.deepPurple.shade400,
+                                    Colors.purple.shade600,
+                                  ],
+                                )
+                              : null,
                         ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(15),
-                          child: CachedArtwork(
-                            songId: displaySong.id,
-                            artworkData: displaySong.albumArtBytes,
-                            width: MediaQuery.of(context).size.width * 0.8,
-                            height: MediaQuery.of(context).size.width * 0.8,
-                            placeholder: _buildArtworkPlaceholder(),
-                          ),
-                        ),
+                        child: (displaySong.albumArt == null || 
+                                displaySong.albumArt!.isEmpty ||
+                                displaySong.albumArt!.startsWith('content://'))
+                            ? const Icon(Icons.music_note, color: Colors.white, size: 60)
+                            : null,
                       ),
 
                       const SizedBox(height: 1.5),
@@ -482,29 +504,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  // ✅ Custom artwork placeholder for player screen
-  Widget _buildArtworkPlaceholder() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.deepPurple.shade400,
-            Colors.purple.shade600,
-          ],
-        ),
-      ),
-      child: const Center(
-        child: Icon(
-          Icons.music_note, 
-          color: Colors.white, 
-          size: 60
         ),
       ),
     );

@@ -43,7 +43,6 @@ Future<List<Song>> _fetchSongsFromDevice() async {
         album: data['album']?.toString(),
         duration: (data['duration'] as int?) ?? 0,
         albumArt: data['albumArt']?.toString(),
-        albumId: (data['albumId'] as int?) ?? 0, // ✅ FIX: albumId add kiya
       );
     }).where((song) => song.duration > 10000).toList();
 

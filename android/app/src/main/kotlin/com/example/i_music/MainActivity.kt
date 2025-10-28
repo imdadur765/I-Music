@@ -2,10 +2,9 @@ package com.example.i_music
 
 import android.Manifest
 import android.content.ContentUris
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
@@ -15,15 +14,12 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.os.Bundle
 import com.ryanheise.audioservice.AudioServiceActivity
-import java.io.ByteArrayOutputStream
+import com.ryanheise.audioservice.AudioService
 
 class MainActivity : AudioServiceActivity() {
     private val CHANNEL = "i_music/media_store"
     private val PERMISSION_REQUEST_CODE = 100
     private val TAG = "MainActivity"
-
-    // ✅ MEMORY CACHE FOR FASTER ACCESS
-    private val thumbnailCache = mutableMapOf<Long, ByteArray>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,205 +42,31 @@ class MainActivity : AudioServiceActivity() {
                     minimizeApp()
                     result.success("App minimized")
                 }
-                "getAlbumArtBytes" -> {
-                    val albumId = call.argument<Int>("albumId")?.toLong()
-                    handleGetAlbumArtBytes(albumId, result)
-                }
-                "getSongThumbnail" -> {
-                    val songId = call.argument<Int>("songId")?.toLong()
-                    handleGetSongThumbnail(songId, result)
-                }
-                "preloadThumbnails" -> {
-                    val albumIds = call.argument<List<Int>>("albumIds")?.map { it.toLong() }
-                    handlePreloadThumbnails(albumIds, result)
-                }
                 else -> result.notImplemented()
             }
         }
     }
 
-    // ✅ NEW: PRELOAD THUMBNAILS FOR FASTER ACCESS
-    private fun handlePreloadThumbnails(albumIds: List<Long>?, result: MethodChannel.Result) {
-        if (!hasStoragePermission()) {
-            result.error("PERMISSION_DENIED", "Storage permission required", null)
-            return
-        }
-
-        try {
-            if (albumIds.isNullOrEmpty()) {
-                result.success(0)
-                return
-            }
-
-            var loadedCount = 0
-            for (albumId in albumIds) {
-                if (albumId > 0 && !thumbnailCache.containsKey(albumId)) {
-                    val thumbnail = getAlbumArtBytes(albumId)
-                    if (thumbnail != null) {
-                        loadedCount++
-                    }
-                }
-            }
-            
-            result.success(loadedCount)
-            Log.d(TAG, "✅ Preloaded $loadedCount thumbnails")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in preloadThumbnails: $e")
-            result.error("PRELOAD_ERROR", e.message, null)
-        }
-    }
-
-    // ✅ OPTIMIZED: FASTER ALBUM ART LOADING WITH CACHE
-    private fun handleGetAlbumArtBytes(albumId: Long?, result: MethodChannel.Result) {
-        if (!hasStoragePermission()) {
-            result.error("PERMISSION_DENIED", "Storage permission required", null)
-            return
-        }
-
-        try {
-            if (albumId == null || albumId <= 0) {
-                result.success(ByteArray(0))
-                return
-            }
-
-            // ✅ CHECK MEMORY CACHE FIRST (INSTANT)
-            if (thumbnailCache.containsKey(albumId)) {
-                result.success(thumbnailCache[albumId])
-                return
-            }
-
-            val albumArtBytes = getAlbumArtBytes(albumId)
-            result.success(albumArtBytes ?: ByteArray(0))
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in handleGetAlbumArtBytes: $e")
-            result.success(ByteArray(0)) // Return empty instead of error
-        }
-    }
-
-    // ✅ OPTIMIZED: FASTER SONG THUMBNAIL WITH CACHE
-    private fun handleGetSongThumbnail(songId: Long?, result: MethodChannel.Result) {
-        if (!hasStoragePermission()) {
-            result.error("PERMISSION_DENIED", "Storage permission required", null)
-            return
-        }
-
-        try {
-            if (songId == null || songId <= 0) {
-                result.success(ByteArray(0))
-                return
-            }
-
-            val thumbnailBytes = getSongThumbnail(songId)
-            result.success(thumbnailBytes ?: ByteArray(0))
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in handleGetSongThumbnail: $e")
-            result.success(ByteArray(0)) // Return empty instead of error
-        }
-    }
-
-    // ✅ OPTIMIZED: GET ALBUM ART WITH CACHE AND FASTER PROCESSING
-    private fun getAlbumArtBytes(albumId: Long): ByteArray? {
-        return try {
-            // ✅ CHECK CACHE FIRST
-            if (thumbnailCache.containsKey(albumId)) {
-                return thumbnailCache[albumId]
-            }
-
-            val albumArtUri = ContentUris.withAppendedId(
-                android.net.Uri.parse("content://media/external/audio/albumart"),
-                albumId
-            )
-            
-            contentResolver.openInputStream(albumArtUri)?.use { inputStream ->
-                val options = BitmapFactory.Options().apply {
-                    inSampleSize = 2 // ✅ FASTER DECODING
-                    inPreferredConfig = Bitmap.Config.RGB_565 // ✅ LESS MEMORY
-                }
-                
-                val bitmap = BitmapFactory.decodeStream(inputStream, null, options)
-                if (bitmap != null) {
-                    val optimizedBitmap = optimizeBitmapSize(bitmap)
-                    val stream = ByteArrayOutputStream()
-                    
-                    // ✅ OPTIMIZED COMPRESSION FOR FASTER PROCESSING
-                    optimizedBitmap.compress(Bitmap.CompressFormat.JPEG, 150, stream) // Reduced quality for speed
-                    val bytes = stream.toByteArray()
-                    
-                    // ✅ STORE IN MEMORY CACHE
-                    thumbnailCache[albumId] = bytes
-                    
-                    bytes
-                } else {
-                    null
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting album art bytes: $e")
-            null
-        }
-    }
-
-    // ✅ OPTIMIZED: GET SONG THUMBNAIL
-    private fun getSongThumbnail(songId: Long): ByteArray? {
-        return try {
-            val projection = arrayOf(MediaStore.Audio.Media.ALBUM_ID)
-            val selection = "${MediaStore.Audio.Media._ID} = ?"
-            val selectionArgs = arrayOf(songId.toString())
-            
-            contentResolver.query(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                projection,
-                selection,
-                selectionArgs,
-                null
-            )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val albumId = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID))
-                    getAlbumArtBytes(albumId)
-                } else {
-                    null
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting song thumbnail: $e")
-            null
-        }
-    }
-
-    // ✅ OPTIMIZED: SMALLER BITMAP SIZE FOR FASTER LOADING
-    private fun optimizeBitmapSize(bitmap: Bitmap): Bitmap {
-        val maxWidth = 200  // ✅ REDUCED FROM 300 FOR FASTER PROCESSING
-        val maxHeight = 200
-        
-        if (bitmap.width <= maxWidth && bitmap.height <= maxHeight) {
-            return bitmap
-        }
-        
-        val scale = Math.min(
-            maxWidth.toFloat() / bitmap.width,
-            maxHeight.toFloat() / bitmap.height
-        )
-        
-        val newWidth = (bitmap.width * scale).toInt()
-        val newHeight = (bitmap.height * scale).toInt()
-        
-        return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
-    }
-
-    // ✅ MINIMIZE APP METHOD
+    // ✅ MINIMIZE APP METHOD (SIRF FLUTTER SE CALL Hoga)
     private fun minimizeApp() {
         try {
             Log.d(TAG, "minimizeApp: Minimizing app to background")
             moveTaskToBack(true)
         } catch (e: Exception) {
-            Log.e(TAG, "Error minimizing app: $e")
+            Log.e(TAG, "❌ Error minimizing app: $e")
         }
     }
 
+    // ❌❌❌ YEH METHOD COMPLETELY COMMENT OUT/REMOVE KARO ❌❌❌
+    /*
+    override fun onBackPressed() {
+        Log.d(TAG, "onBackPressed: Back button pressed - Using native handling")
+        minimizeApp()
+    }
+    */
+
     override fun onDestroy() {
         Log.d(TAG, "onDestroy: Activity being destroyed")
-        // ✅ CLEAR CACHE TO SAVE MEMORY
-        thumbnailCache.clear()
         stopAudioService()
         super.onDestroy()
     }
@@ -258,10 +80,10 @@ class MainActivity : AudioServiceActivity() {
                     .invokeMethod("stopAudioService", null)
             }
 
-            Log.d(TAG, "Audio service stop command sent via method channel")
+            Log.d(TAG, "✅ Audio service stop command sent via method channel")
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error stopping audio service: $e")
+            Log.e(TAG, "❌ Error stopping audio service: $e")
             e.printStackTrace()
         }
     }
@@ -374,7 +196,6 @@ class MainActivity : AudioServiceActivity() {
                 song["dateAdded"] = c.getLong(dateAddedColumn)
                 song["fileSize"] = c.getLong(sizeColumn)
                 song["mimeType"] = c.getString(mimeTypeColumn) ?: "audio/mpeg"
-                song["albumId"] = c.getLong(albumIdColumn)
 
                 songsList.add(song)
             }
