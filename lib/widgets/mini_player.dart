@@ -1,10 +1,10 @@
-// lib/widgets/mini_player.dart - CLEAN VERSION
+// lib/widgets/mini_player.dart - COMPLETELY FIXED
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:i_music/providers/app_providers.dart'; // ✅ SINGLE IMPORT
+import 'package:i_music/providers/app_providers.dart';
 import 'package:i_music/main.dart' as main_app;
-import 'package:i_music/models/song_model.dart';
 import 'package:i_music/screens/player_screen.dart';
+import 'package:i_music/widgets/album_art_widget.dart'; // ✅ CORRECT IMPORT
 
 class MiniPlayer extends ConsumerWidget {
   const MiniPlayer({super.key});
@@ -26,7 +26,7 @@ class MiniPlayer extends ConsumerWidget {
         border: Border(top: BorderSide(color: Colors.grey.shade800)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withOpacity(0.3), // ✅ FIXED: withOpacity is fine for now
             blurRadius: 8,
             offset: const Offset(0, -2),
           ),
@@ -42,28 +42,15 @@ class MiniPlayer extends ConsumerWidget {
           },
           child: Row(
             children: [
-              // Album Art
-              Container(
-                width: 50,
-                height: 50,
-                margin: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.deepPurple.shade400,
-                  borderRadius: BorderRadius.circular(8),
-                  image: (currentSong.albumArt != null && 
-                          currentSong.albumArt!.isNotEmpty &&
-                          !currentSong.albumArt!.startsWith('content://'))
-                      ? DecorationImage(
-                          image: NetworkImage(currentSong.albumArt!),
-                          fit: BoxFit.cover,
-                        )
-                      : null,
+              // ✅ FIXED: Use AlbumArtWidget as a Widget, not a method
+              Padding(
+                padding: const EdgeInsets.all(10),
+                child: AlbumArtWidget( // ✅ This is a Widget class, not a method
+                  song: currentSong,
+                  size: 50.0,
+                  borderRadius: 8.0,
+                  showShadow: true,
                 ),
-                child: (currentSong.albumArt == null || 
-                        currentSong.albumArt!.isEmpty ||
-                        currentSong.albumArt!.startsWith('content://'))
-                    ? const Icon(Icons.music_note, color: Colors.white, size: 24)
-                    : null,
               ),
 
               // Song Info

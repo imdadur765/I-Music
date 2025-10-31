@@ -4,13 +4,15 @@
     package="com.example.i_music">
 
     <!-- 🎵 AUDIO & STORAGE PERMISSIONS -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- Android 13+ (API 33+) ke liye -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     
-    <!-- ✅ CONDITIONAL MANAGE_EXTERNAL_STORAGE - For Android 11+ only -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" 
+    <!-- Android 12 aur niche ke liye -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
+    
+    <!-- ❌ REMOVED: MANAGE_EXTERNAL_STORAGE - Google Play policy violation -->
     
     <!-- 🔔 NOTIFICATION PERMISSIONS -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

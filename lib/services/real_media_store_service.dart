@@ -1,4 +1,4 @@
-// lib/services/real_media_store_service.dart
+// lib/services/real_media_store_service.dart - COMPLETELY FIXED
 
 // ignore_for_file: unnecessary_import, use_build_context_synchronously
 
@@ -239,19 +239,25 @@ class RealMediaStoreService {
         }
         seenIds.add(id);
 
-        // ✅ CREATE VALID SONG
+        // ✅ CREATE VALID SONG - WITH ALL REQUIRED FIELDS INCLUDING mediaStoreId
         validSongs.add(Song(
           id: id,
+          uri: uri,
           title: title,
           artist: artist,
           album: album,
           duration: duration,
-          uri: uri,
           albumArt: albumArt,
-          // 🆕 ADDITIONAL METADATA
+          // ✅ CRITICAL FIX: ADD mediaStoreId AND ALL REQUIRED FIELDS
+          mediaStoreId: int.tryParse(id) ?? id.hashCode, // Convert to int or use hash
           genre: map['genre']?.toString(),
           trackNumber: _parseTrackNumber(map['trackNumber']),
           year: _parseYear(map['year']),
+          composer: map['composer']?.toString(),
+          playCount: 0,
+          lastPlayed: DateTime.now(),
+          dateAdded: DateTime.now(),
+          isFavorite: false,
         ));
 
       } catch (e, st) {
@@ -305,41 +311,71 @@ class RealMediaStoreService {
     return 'fallback_${DateTime.now().microsecondsSinceEpoch}';
   }
 
-  /// 🎵 ENHANCED FALLBACK SONGS
+  /// 🎵 ENHANCED FALLBACK SONGS - WITH ALL REQUIRED FIELDS
   List<Song> _getEnhancedFallbackSongs() {
     return [
       Song(
-        id: 'fallback_info',
+        id: 'fallback_info_1',
+        uri: '',
         title: 'No songs found',
         artist: 'Check permissions and try again',
         album: 'i_music',
         duration: 0,
-        uri: '',
         albumArt: null,
+        // ✅ FIXED: ADD ALL REQUIRED FIELDS
+        mediaStoreId: 1001,
+        genre: null,
+        trackNumber: null,
+        year: null,
+        composer: null,
+        playCount: 0,
+        lastPlayed: DateTime.now(),
+        dateAdded: DateTime.now(),
+        isFavorite: false,
       ),
       Song(
-        id: 'fallback_help',
+        id: 'fallback_info_2',
+        uri: '',
         title: 'Grant storage permission',
         artist: 'Open app settings → Permissions',
         album: 'i_music',
         duration: 0,
-        uri: '',
         albumArt: null,
+        // ✅ FIXED: ADD ALL REQUIRED FIELDS
+        mediaStoreId: 1002,
+        genre: null,
+        trackNumber: null,
+        year: null,
+        composer: null,
+        playCount: 0,
+        lastPlayed: DateTime.now(),
+        dateAdded: DateTime.now(),
+        isFavorite: false,
       ),
     ];
   }
 
-  /// 🎵 ERROR FALLBACK SONGS
+  /// 🎵 ERROR FALLBACK SONGS - WITH ALL REQUIRED FIELDS
   List<Song> _getErrorFallbackSongs(String error) {
     return [
       Song(
         id: 'error_info',
+        uri: '',
         title: 'Error loading songs',
         artist: error.length > 30 ? '${error.substring(0, 30)}...' : error,
         album: 'i_music',
         duration: 0,
-        uri: '',
         albumArt: null,
+        // ✅ FIXED: ADD ALL REQUIRED FIELDS
+        mediaStoreId: 1003,
+        genre: null,
+        trackNumber: null,
+        year: null,
+        composer: null,
+        playCount: 0,
+        lastPlayed: DateTime.now(),
+        dateAdded: DateTime.now(),
+        isFavorite: false,
       ),
     ];
   }

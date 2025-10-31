@@ -51,6 +51,10 @@ class Song extends HiveObject {
   @HiveField(14)
   final bool isFavorite;
 
+  // ✅ CRITICAL FIX: ADD mediaStoreId FOR ALBUM ART
+  @HiveField(15)
+  final int mediaStoreId;
+
   // 🆕 ENHANCED CONSTRUCTOR WITH DEFAULT VALUES
   Song({
     required this.id,
@@ -68,6 +72,7 @@ class Song extends HiveObject {
     DateTime? lastPlayed,
     DateTime? dateAdded,
     this.isFavorite = false,
+    required this.mediaStoreId, // ✅ ADDED - REQUIRED NOW
   })  : lastPlayed = lastPlayed ?? DateTime.now(),
         dateAdded = dateAdded ?? DateTime.now();
 
@@ -93,6 +98,29 @@ class Song extends HiveObject {
           ? DateTime.parse(json['dateAdded']) 
           : null,
       isFavorite: json['isFavorite'] ?? false,
+      mediaStoreId: json['mediaStoreId'] ?? 0, // ✅ ADDED
+    );
+  }
+
+  // ✅ ADDED: Factory constructor from MediaStore data
+  factory Song.fromMediaStore(Map<dynamic, dynamic> data) {
+    return Song(
+      id: data['id'].toString(), // String ID for your app
+      uri: data['uri'] ?? '',
+      title: data['title'] ?? 'Unknown Title',
+      artist: data['artist'] ?? 'Unknown Artist',
+      album: data['album'] ?? 'Unknown Album',
+      duration: (data['duration'] ?? 0).toInt(),
+      albumArt: data['albumArt'],
+      genre: data['genre'],
+      trackNumber: (data['trackNumber'] ?? 0).toInt(),
+      year: (data['year'] ?? 0).toInt(),
+      composer: data['composer'],
+      playCount: 0,
+      lastPlayed: DateTime.now(),
+      dateAdded: DateTime.now(),
+      isFavorite: false,
+      mediaStoreId: (data['id'] ?? 0).toInt(), // ✅ CRITICAL: Actual MediaStore ID
     );
   }
 
@@ -114,6 +142,7 @@ class Song extends HiveObject {
       'lastPlayed': lastPlayed.toIso8601String(),
       'dateAdded': dateAdded.toIso8601String(),
       'isFavorite': isFavorite,
+      'mediaStoreId': mediaStoreId, // ✅ ADDED
     };
   }
 
@@ -134,6 +163,7 @@ class Song extends HiveObject {
     DateTime? lastPlayed,
     DateTime? dateAdded,
     bool? isFavorite,
+    int? mediaStoreId, // ✅ ADDED
   }) {
     return Song(
       id: id ?? this.id,
@@ -151,6 +181,7 @@ class Song extends HiveObject {
       lastPlayed: lastPlayed ?? this.lastPlayed,
       dateAdded: dateAdded ?? this.dateAdded,
       isFavorite: isFavorite ?? this.isFavorite,
+      mediaStoreId: mediaStoreId ?? this.mediaStoreId, // ✅ ADDED
     );
   }
 
@@ -201,11 +232,21 @@ class Song extends HiveObject {
   @override
   int get hashCode => Object.hash(id, uri);
 
-  String? get filePath => null;
+  // ✅ FIXED: filePath getter - return actual file path from uri
+  String? get filePath {
+    try {
+      if (uri.startsWith('file://')) {
+        return uri.substring(7); // Remove 'file://' prefix
+      }
+      return uri;
+    } catch (e) {
+      return null;
+    }
+  }
 
   // ✅ ENHANCED TO STRING METHOD
   @override
-  String toString() => 'Song($title - $artist | $formattedDuration)';
+  String toString() => 'Song($title - $artist | $formattedDuration | MediaStoreID: $mediaStoreId)';
 
   // 🆕 COMPARE METHODS FOR SORTING
   int compareByTitle(Song other) => title.compareTo(other.title);

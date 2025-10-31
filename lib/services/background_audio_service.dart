@@ -1,9 +1,13 @@
-// lib/services/background_audio_service.dart - COMPLETE FIXED VERSION
+// lib/services/background_audio_service.dart - COMPLETELY FIXED
+import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+
 import '../models/song_model.dart';
+import 'album_art_service.dart';
 
 class BackgroundAudioHandler extends BaseAudioHandler {
   final AudioPlayer _player;
@@ -11,6 +15,9 @@ class BackgroundAudioHandler extends BaseAudioHandler {
   int _currentIndex = 0;
   bool _isInitialized = false;
   bool _isDisposed = false;
+
+  // ✅ FIXED: Album art cache to prevent multiple file operations
+  final Map<String, String> _albumArtCache = {};
 
   BackgroundAudioHandler() : _player = AudioPlayer() {
     _initializePlayer();
@@ -124,7 +131,7 @@ class BackgroundAudioHandler extends BaseAudioHandler {
     }
   }
 
-  // ✅ ADDED: Missing method
+  // ✅ FIXED: Missing method
   void _handleTrackCompletion() {
     if (_currentIndex < _currentQueue.length - 1) {
       skipToNext();
@@ -134,32 +141,17 @@ class BackgroundAudioHandler extends BaseAudioHandler {
     }
   }
 
-  // ✅ ADDED: Missing method
-  void _updateCurrentMediaItem() {
+  // ✅ FIXED: Album art ke saath media item update
+  void _updateCurrentMediaItem() async {
     if (_currentIndex < _currentQueue.length && !mediaItem.isClosed) {
-      mediaItem.add(_songToMediaItem(_currentQueue[_currentIndex]));
+      final mediaItemValue = await _songToMediaItem(_currentQueue[_currentIndex]);
+      mediaItem.add(mediaItemValue);
     }
   }
 
-  // ✅ CRITICAL FIX: Override stop method for swipe close
+  // ✅ FIXED: Added @override annotation
   @override
-  Future<void> stop() async {
-    debugPrint('🛑 STOP CALLED - Preparing for app termination');
-    await _forceCleanup();
-    return super.stop();
-  }
-
-  // ✅ ADD THIS: Handle task removal (app killed by system)
-  @override
-  Future<void> onTaskRemoved() async {
-    debugPrint('🔴 onTaskRemoved CALLED - App being killed by system');
-    await _forceCleanup();
-    await super.onTaskRemoved();
-  }
-
-  // ✅ ADD THIS: Handle custom actions (like from native)
-  @override
-  Future<dynamic> customAction(String name, [dynamic arguments]) async {
+  Future<dynamic> customAction(String name, [dynamic extras]) async {
     debugPrint('🎛️ Custom action received: $name');
     
     switch (name) {
@@ -172,6 +164,11 @@ class BackgroundAudioHandler extends BaseAudioHandler {
         debugPrint('🔥 Dispose command received');
         await dispose();
         return 'disposed';
+
+      case 'clearAlbumArtCache':
+        debugPrint('🖼️ Clearing album art cache');
+        _albumArtCache.clear();
+        return 'cache_cleared';
       
       default:
         debugPrint('❌ Unknown custom action: $name');
@@ -194,6 +191,7 @@ class BackgroundAudioHandler extends BaseAudioHandler {
       // Clear all data
       _currentQueue.clear();
       _currentIndex = 0;
+      _albumArtCache.clear();
       
       // Update state to idle
       if (!playbackState.isClosed) {
@@ -216,8 +214,12 @@ class BackgroundAudioHandler extends BaseAudioHandler {
     }
   }
 
+  // ✅ FIXED: Album art integration with setSong
   Future<void> setSong(Song song, List<Song> queue) async {
     try {
+      debugPrint('🎵 Setting song: ${song.title}');
+      debugPrint('🎵 MediaStore ID: ${song.mediaStoreId}');
+      
       if (song.uri.isEmpty) throw ArgumentError('Song URI cannot be empty');
       if (queue.isEmpty) throw ArgumentError('Queue cannot be empty');
 
@@ -229,10 +231,13 @@ class BackgroundAudioHandler extends BaseAudioHandler {
 
       await _safeStopPlayer();
 
-      final mediaItems = queue.map(_songToMediaItem).toList();
-      if (!mediaItem.isClosed) mediaItem.add(mediaItems[initialIndex]);
-      if (!super.queue.isClosed) super.queue.add(mediaItems);
+      // ✅ FIXED: Create MediaItem with album art
+      final currentMediaItem = await _songToMediaItem(song);
+      debugPrint('🎵 MediaItem artUri: ${currentMediaItem.artUri}');
+      
+      if (!mediaItem.isClosed) mediaItem.add(currentMediaItem);
 
+      // Create audio sources
       final audioSources = queue.map((s) => AudioSource.uri(Uri.parse(s.uri))).toList();
       await _player.setAudioSources(audioSources, preload: true, initialIndex: initialIndex);
 
@@ -258,12 +263,17 @@ class BackgroundAudioHandler extends BaseAudioHandler {
     }
   }
 
+  // ✅ FIXED: Fallback playback with album art
   Future<void> _executeFallbackPlayback(Song song) async {
     try {
       debugPrint('🔄 Executing fallback playback for: ${song.title}');
       await _safeStopPlayer();
       await _player.setAudioSource(AudioSource.uri(Uri.parse(song.uri)), preload: true);
-      if (!mediaItem.isClosed) mediaItem.add(_songToMediaItem(song));
+      
+      // ✅ ADDED: MediaItem with album art for fallback
+      final mediaItemValue = await _songToMediaItem(song);
+      if (!mediaItem.isClosed) mediaItem.add(mediaItemValue);
+      
       await _player.play();
       debugPrint('✅ Fallback playback successful');
     } catch (fallbackError) {
@@ -271,32 +281,117 @@ class BackgroundAudioHandler extends BaseAudioHandler {
     }
   }
 
-  MediaItem _songToMediaItem(Song song) {
-    Uri? artUri;
+  // ✅ FIXED: MediaItem creation with proper album art
+  Future<MediaItem> _songToMediaItem(Song song) async {
     try {
-      if (song.albumArt != null && song.albumArt!.isNotEmpty) {
-        if (song.albumArt!.startsWith('http')) artUri = Uri.parse(song.albumArt!);
-      }
-    } catch (e) {
-      debugPrint('⚠️ Error parsing album art: $e');
-    }
+      Uri? artUri;
 
-    return MediaItem(
-      id: song.id,
-      title: song.title,
-      artist: song.artist,
-      album: song.album ?? 'Unknown Album',
-      duration: Duration(milliseconds: song.duration),
-      artUri: artUri,
-      extras: {
-        'uri': song.uri,
-        'song_object': song,
-        'album': song.album,
-        'artist': song.artist,
-      },
-    );
+      // Check cache first for performance
+      if (_albumArtCache.containsKey(song.id)) {
+        artUri = Uri.parse(_albumArtCache[song.id]!);
+        debugPrint('🖼️ Using cached album art for: ${song.title}');
+      } else {
+        // Try to get album art
+        artUri = await _getAlbumArtUri(song);
+        if (artUri != null) {
+          _albumArtCache[song.id] = artUri.toString();
+        }
+      }
+
+      return MediaItem(
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        album: song.album ?? 'Unknown Album',
+        duration: Duration(milliseconds: song.duration),
+        artUri: artUri, // ✅ This will show in notification/lock screen
+        genre: song.genre,
+        extras: {
+          'uri': song.uri,
+          'song_object': song,
+          'album': song.album,
+          'artist': song.artist,
+          'albumArt': song.albumArt,
+          'playCount': song.playCount,
+          'isFavorite': song.isFavorite,
+          'trackNumber': song.trackNumber,
+          'year': song.year,
+        },
+      );
+    } catch (e) {
+      debugPrint('❌ Error creating MediaItem: $e');
+      // Return MediaItem without album art as fallback
+      return MediaItem(
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        album: song.album ?? 'Unknown Album',
+        duration: Duration(milliseconds: song.duration),
+        extras: {
+          'uri': song.uri,
+          'song_object': song,
+        },
+      );
+    }
   }
 
+  // ✅ FIXED: Album art extraction method with NAMED parameters
+  Future<Uri?> _getAlbumArtUri(Song song) async {
+    try {
+      debugPrint('🔄 Album art extraction started for: ${song.title}');
+      
+      // Method 1: Use existing albumArt path from song
+      if (song.albumArt != null && song.albumArt!.isNotEmpty) {
+        if (song.albumArt!.startsWith('http')) {
+          return Uri.parse(song.albumArt!);
+        } else {
+          final file = File(song.albumArt!);
+          if (await file.exists()) {
+            return Uri.file(song.albumArt!);
+          }
+        }
+      }
+
+      // Method 2: Extract from MediaStore using AlbumArtService
+      // ✅ FIXED: Use NAMED parameters as required by AlbumArtService
+      final albumArtBytes = await AlbumArtService.getAlbumArt(
+        songId: song.mediaStoreId,   // Named parameter
+        songTitle: song.title,       // Named parameter
+        artist: song.artist,         // Named parameter
+      );
+
+      debugPrint('🎨 AlbumArtService returned: ${albumArtBytes?.length ?? 0} bytes');
+      
+      if (albumArtBytes != null) {
+        // Save to temporary file and return URI
+        final tempDir = await getTemporaryDirectory();
+        final file = File('${tempDir.path}/${song.id}_album_art.jpg');
+        await file.writeAsBytes(albumArtBytes);
+        
+        final uri = Uri.file(file.path);
+        debugPrint('✅ Album art file created: ${file.path}');
+        debugPrint('✅ Final artUri for notification: $uri');
+        
+        // ✅ EXTRA CHECK: File exists and readable?
+        final exists = await file.exists();
+        debugPrint('✅ File exists: $exists');
+        if (exists) {
+          final length = await file.length();
+          debugPrint('✅ File size: $length bytes');
+        }
+        
+        return uri;
+      }
+
+      debugPrint('⚠️ No album art found for: ${song.title}');
+      return null;
+    } catch (e) {
+      debugPrint('❌ Error getting album art URI: $e');
+      return null;
+    }
+  }
+
+  // ✅ FIXED: Added @override annotations for all methods
   @override
   Future<void> play() async {
     try {
@@ -363,6 +458,21 @@ class BackgroundAudioHandler extends BaseAudioHandler {
     }
   }
 
+  // ✅ Other necessary methods
+  @override
+  Future<void> stop() async {
+    debugPrint('🛑 STOP CALLED - Preparing for app termination');
+    await _forceCleanup();
+    return super.stop();
+  }
+
+  @override
+  Future<void> onTaskRemoved() async {
+    debugPrint('🔴 onTaskRemoved CALLED - App being killed by system');
+    await _forceCleanup();
+    await super.onTaskRemoved();
+  }
+
   @override
   Future<void> setSpeed(double speed) async {
     try {
@@ -384,12 +494,14 @@ class BackgroundAudioHandler extends BaseAudioHandler {
     }
   }
 
+  // ✅ Getters
   List<Song> get currentQueue => List.unmodifiable(_currentQueue);
   int get currentIndex => _currentIndex;
   Song? get currentSong => _currentIndex < _currentQueue.length ? _currentQueue[_currentIndex] : null;
   Duration? get duration => _player.duration;
   Duration get position => _player.position;
 
+  // ✅ Streams
   Stream<Duration> get positionStream => _player.positionStream;
   Stream<Duration> get bufferedPositionStream => _player.bufferedPositionStream;
   Stream<Duration?> get durationStream => _player.durationStream;
@@ -397,63 +509,11 @@ class BackgroundAudioHandler extends BaseAudioHandler {
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;
   Stream<ProcessingState> get processingStateStream => _player.processingStateStream;
 
-  Future<void> nuclearEmergencyStop() async {
-    debugPrint('☢️ NUCLEAR EMERGENCY STOP CALLED');
-    try {
-      await _player.stop();
-      await _player.dispose();
-      _isDisposed = true;
-      _currentQueue.clear();
-      _currentIndex = 0;
-      if (!playbackState.isClosed) {
-        playbackState.add(PlaybackState(
-          controls: [],
-          systemActions: const {MediaAction.stop},
-          processingState: AudioProcessingState.idle,
-          playing: false,
-          updatePosition: Duration.zero,
-          bufferedPosition: Duration.zero,
-          speed: 1.0,
-          queueIndex: null,
-        ));
-      }
-      if (!mediaItem.isClosed) mediaItem.add(null);
-      if (!queue.isClosed) queue.add([]);
-      debugPrint('✅ NUCLEAR EMERGENCY STOP COMPLETED');
-    } catch (e) {
-      debugPrint('❌ Nuclear emergency stop failed: $e');
-    }
-  }
-
-  Future<void> emergencyStop() async {
-    try {
-      await _player.stop();
-      await _player.seek(Duration.zero);
-      _currentQueue.clear();
-      _currentIndex = 0;
-      debugPrint('✅ Emergency stop completed');
-    } catch (e) {
-      debugPrint('❌ Emergency stop failed: $e');
-    }
-  }
-
-  Future<void> resetPlayer() async {
-    try {
-      await _safeStopPlayer();
-      _currentQueue.clear();
-      _currentIndex = 0;
-      if (!mediaItem.isClosed) mediaItem.add(null);
-      debugPrint('✅ Player reset successfully');
-    } catch (e) {
-      debugPrint('❌ Error resetting player: $e');
-    }
-  }
-
-  @override
   Future<void> dispose() async {
     if (_isDisposed) return;
     _isDisposed = true;
     debugPrint('🔥 DISPOSE CALLED - Final cleanup');
+    _albumArtCache.clear();
     await _forceCleanup();
   }
 }

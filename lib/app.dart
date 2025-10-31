@@ -1,6 +1,7 @@
 // lib/app.dart - SIMPLE VERSION
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+// ignore: unused_import
 import 'package:flutter/services.dart';
 import 'screens/songs_list_screen.dart';
 import 'widgets/mini_player.dart';

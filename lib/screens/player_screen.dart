@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:i_music/main.dart' as main_app;
 import 'package:i_music/providers/app_providers.dart';
 import 'package:i_music/models/song_model.dart';
+import 'package:i_music/widgets/album_art_widget.dart'; // ✅ ADDED
 
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({super.key});
@@ -52,23 +53,35 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
   }
 
+  // ✅ FIXED: Seek bar functionality
   void _seekToPosition(double value) {
+    final clampedValue = value.clamp(0.0, 1.0); // ✅ Ensure value is between 0-1
     setState(() {
       _isDragging = true;
-      _currentPosition = value;
+      _currentPosition = clampedValue;
     });
     
     final totalMs = _totalDuration.inMilliseconds;
     if (totalMs > 0) {
-      final newPosition = Duration(milliseconds: (value * totalMs).round());
+      final newPosition = Duration(milliseconds: (clampedValue * totalMs).round());
       main_app.globalAudioHandler.seek(newPosition);
     }
     
     Future.delayed(const Duration(milliseconds: 100), () {
-      setState(() {
-        _isDragging = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isDragging = false;
+        });
+      }
     });
+  }
+
+  // ✅ ADDED: Tap to seek functionality
+  void _handleTapDown(TapDownDetails details, BoxConstraints constraints) {
+    final double tapPosition = details.localPosition.dx;
+    final double totalWidth = constraints.maxWidth;
+    final double newPosition = (tapPosition / totalWidth).clamp(0.0, 1.0);
+    _seekToPosition(newPosition);
   }
 
   @override
@@ -101,9 +114,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       );
     }
 
-    // ✅ FIXED: Use PopScope instead of WillPopScope
     return PopScope(
-      canPop: false, // ✅ Yeh important hai - manually handle karo back button
+      canPop: false,
       onPopInvoked: (bool didPop) {
         if (!didPop) {
           debugPrint('🎯 Back button pressed on PlayerScreen - Going back to SongList');
@@ -115,7 +127,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         body: SafeArea(
           child: Column(
             children: [
-              // ✅ App Bar with back button - FIXED
+              // ✅ App Bar with back button
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
                 child: Row(
@@ -149,7 +161,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 ),
               ),
 
-              // ✅ Rest of your existing code remains SAME...
               Expanded(
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
@@ -159,51 +170,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     children: [
                       const SizedBox(height: 5),
 
-                      // Album Art
+                      // ✅ UPDATED: Album Art with AlbumArtWidget
                       Container(
-                        width: MediaQuery.of(context).size.width * 0.8,
-                        height: MediaQuery.of(context).size.width * 0.8,
                         margin: const EdgeInsets.symmetric(vertical: 10),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(15),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.6),
-                              blurRadius: 20,
-                              offset: const Offset(0, 15),
-                            ),
-                          ],
-                          image: (displaySong.albumArt != null && 
-                                  displaySong.albumArt!.isNotEmpty &&
-                                  !displaySong.albumArt!.startsWith('content://'))
-                              ? DecorationImage(
-                                  image: NetworkImage(displaySong.albumArt!),
-                                  fit: BoxFit.cover,
-                                )
-                              : null,
-                          color: (displaySong.albumArt == null || 
-                                  displaySong.albumArt!.isEmpty ||
-                                  displaySong.albumArt!.startsWith('content://'))
-                              ? Colors.deepPurple.shade400
-                              : null,
-                          gradient: (displaySong.albumArt == null || 
-                                    displaySong.albumArt!.isEmpty ||
-                                    displaySong.albumArt!.startsWith('content://'))
-                              ? LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    Colors.deepPurple.shade400,
-                                    Colors.purple.shade600,
-                                  ],
-                                )
-                              : null,
+                        child: NowPlayingAlbumArt(
+                          song: displaySong,
+                          size: MediaQuery.of(context).size.width * 0.8,
                         ),
-                        child: (displaySong.albumArt == null || 
-                                displaySong.albumArt!.isEmpty ||
-                                displaySong.albumArt!.startsWith('content://'))
-                            ? const Icon(Icons.music_note, color: Colors.white, size: 60)
-                            : null,
                       ),
 
                       const SizedBox(height: 1.5),
@@ -254,7 +227,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
                       const SizedBox(height: 5),
 
-                      // Progress and Seek Bar
+                      // ✅ FIXED: Progress and Seek Bar
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 15),
                         child: Column(
@@ -283,76 +256,79 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                             ),
                             const SizedBox(height: 5),
                             
-                            GestureDetector(
-                              onTapDown: (details) {
-                                final box = context.findRenderObject() as RenderBox?;
-                                if (box != null) {
-                                  final localOffset = box.globalToLocal(details.globalPosition);
-                                  final newPosition = localOffset.dx / box.size.width;
-                                  _seekToPosition(newPosition.clamp(1.0, 1.0));
-                                }
-                              },
-                              onHorizontalDragStart: (details) {
-                                setState(() {
-                                  _isDragging = true;
-                                });
-                              },
-                              onHorizontalDragUpdate: (details) {
-                                final box = context.findRenderObject() as RenderBox?;
-                                if (box != null) {
-                                  final localOffset = box.globalToLocal(details.globalPosition);
-                                  final newPosition = localOffset.dx / box.size.width;
-                                  setState(() {
-                                    _currentPosition = newPosition.clamp(1.0, 1.0);
-                                  });
-                                }
-                              },
-                              onHorizontalDragEnd: (details) {
-                                _seekToPosition(_currentPosition);
-                              },
-                              child: Container(
-                                height: 40,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                child: Stack(
-                                  children: [
-                                    Container(
-                                      height: 4,
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey.shade800,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                    AnimatedContainer(
-                                      duration: _isDragging ? Duration.zero : const Duration(milliseconds: 200),
-                                      height: 4,
-                                      width: MediaQuery.of(context).size.width * _currentPosition,
-                                      decoration: BoxDecoration(
-                                        color: Colors.deepPurple.shade400,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                    Positioned(
-                                      left: MediaQuery.of(context).size.width * _currentPosition - 8,
-                                      top: -4,
-                                      child: Container(
-                                        width: 16,
-                                        height: 16,
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          shape: BoxShape.circle,
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withOpacity(0.10),
-                                              blurRadius: 4,
-                                              offset: const Offset(0, 10),
-                                            ),
-                                          ],
+                            // ✅ FIXED: Seek Bar with proper gesture detection
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                return GestureDetector(
+                                  onTapDown: (details) => _handleTapDown(details, constraints),
+                                  onHorizontalDragStart: (details) {
+                                    setState(() {
+                                      _isDragging = true;
+                                    });
+                                  },
+                                  onHorizontalDragUpdate: (details) {
+                                    final localOffset = details.localPosition;
+                                    final newPosition = (localOffset.dx / constraints.maxWidth).clamp(0.0, 1.0);
+                                    setState(() {
+                                      _currentPosition = newPosition;
+                                    });
+                                  },
+                                  onHorizontalDragEnd: (details) {
+                                    _seekToPosition(_currentPosition);
+                                  },
+                                  onHorizontalDragCancel: () {
+                                    _seekToPosition(_currentPosition);
+                                  },
+                                  child: Container(
+                                    height: 40,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    child: Stack(
+                                      alignment: Alignment.centerLeft,
+                                      children: [
+                                        // Background track
+                                        Container(
+                                          height: 4,
+                                          width: constraints.maxWidth,
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey.shade800,
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
                                         ),
-                                      ),
+                                        // Progress track
+                                        AnimatedContainer(
+                                          duration: _isDragging ? Duration.zero : const Duration(milliseconds: 200),
+                                          height: 4,
+                                          width: constraints.maxWidth * _currentPosition,
+                                          decoration: BoxDecoration(
+                                            color: Colors.deepPurple.shade400,
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                        ),
+                                        // Thumb
+                                        AnimatedPositioned(
+                                          duration: _isDragging ? Duration.zero : const Duration(milliseconds: 200),
+                                          left: (constraints.maxWidth * _currentPosition) - 8,
+                                          child: Container(
+                                            width: 16,
+                                            height: 16,
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              shape: BoxShape.circle,
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.black.withOpacity(0.3),
+                                                  blurRadius: 4,
+                                                  offset: const Offset(0, 2),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                ),
-                              ),
+                                  ),
+                                );
+                              },
                             ),
                           ],
                         ),

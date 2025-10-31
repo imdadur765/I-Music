@@ -124,22 +124,42 @@ Future<Song> _fileToSong(File file) async {
   try {
     return Song(
       id: file.path.hashCode.toString(),
+      uri: file.uri.toString(),
       title: _getFileNameWithoutExtension(file.path),
       artist: 'Unknown Artist',
       album: 'Unknown Album',
       duration: 0, // To be updated if you integrate a metadata parser
-      uri: file.uri.toString(),
       albumArt: null,
+      // ✅ ADDED: All required fields including mediaStoreId
+      mediaStoreId: file.path.hashCode, // Using file path hash as mediaStoreId for now
+      genre: null,
+      trackNumber: null,
+      year: null,
+      composer: null,
+      playCount: 0,
+      lastPlayed: DateTime.now(),
+      dateAdded: DateTime.now(),
+      isFavorite: false,
     );
   } catch (_) {
     return Song(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
+      uri: file.uri.toString(),
       title: 'Unknown',
       artist: 'Unknown Artist',
       album: 'Unknown Album',
       duration: 0,
-      uri: file.uri.toString(),
       albumArt: null,
+      // ✅ ADDED: All required fields including mediaStoreId
+      mediaStoreId: DateTime.now().millisecondsSinceEpoch,
+      genre: null,
+      trackNumber: null,
+      year: null,
+      composer: null,
+      playCount: 0,
+      lastPlayed: DateTime.now(),
+      dateAdded: DateTime.now(),
+      isFavorite: false,
     );
   }
 }

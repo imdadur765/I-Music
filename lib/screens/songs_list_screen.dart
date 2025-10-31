@@ -1,4 +1,4 @@
-// lib/screens/songs_list_screen.dart - ONLY HERE APP MINIMIZE
+// lib/screens/songs_list_screen.dart - UPDATED WITH ALBUM ART
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +7,7 @@ import 'package:i_music/providers/app_providers.dart';
 import 'package:i_music/models/song_model.dart';
 import 'package:i_music/services/background_audio_service.dart';
 import 'package:i_music/screens/settings_page.dart';
+import 'package:i_music/widgets/album_art_widget.dart'; // ✅ ADDED
 
 // MethodChannel for native communication
 final MethodChannel _nativeChannel = MethodChannel('i_music/media_store');
@@ -56,9 +57,29 @@ class _SongsListScreenState extends ConsumerState<SongsListScreen> {
           ],
         ),
         body: songsAsync.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, stack) => const Center(
-            child: Text('Error loading songs', style: TextStyle(color: Colors.white)),
+          loading: () => const Center(
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.purple),
+            ),
+          ),
+          error: (error, stack) => Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.music_off, size: 64, color: Colors.white54),
+                const SizedBox(height: 16),
+                Text(
+                  'Error loading songs',
+                  style: TextStyle(color: Colors.white54, fontSize: 16),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  error.toString(),
+                  style: TextStyle(color: Colors.white38, fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
           ),
           data: (songs) => _buildSongsList(songs),
         ),
@@ -68,20 +89,36 @@ class _SongsListScreenState extends ConsumerState<SongsListScreen> {
 
   Widget _buildSongsList(List<Song> songs) {
     if (songs.isEmpty) {
-      return const Center(
-        child: Text('No songs found', style: TextStyle(color: Colors.white54)),
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.music_off, size: 64, color: Colors.white54),
+            SizedBox(height: 16),
+            Text(
+              'No songs found',
+              style: TextStyle(color: Colors.white54, fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Make sure you have music files on your device',
+              style: TextStyle(color: Colors.white38, fontSize: 12),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       );
     }
 
     return ListView.builder(
       itemCount: songs.length,
+      padding: const EdgeInsets.symmetric(vertical: 8),
       itemBuilder: (context, index) {
         final song = songs[index];
         
-        return ListTile(
-          leading: const Icon(Icons.music_note, color: Colors.white),
-          title: Text(song.title, style: const TextStyle(color: Colors.white)),
-          subtitle: Text(song.artist, style: const TextStyle(color: Colors.white54)),
+        return _SongListItem(
+          song: song,
+          songs: songs,
           onTap: () => _playSong(song, songs),
         );
       },
@@ -109,7 +146,10 @@ class _SongsListScreenState extends ConsumerState<SongsListScreen> {
       debugPrint('❌ Error playing song: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to play: ${song.title}')),
+          SnackBar(
+            content: Text('Failed to play: ${song.title}'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -124,5 +164,63 @@ class _SongsListScreenState extends ConsumerState<SongsListScreen> {
       debugPrint('❌ Error with standard handler: $e');
       rethrow;
     }
+  }
+}
+
+// ✅ ADDED: Separate widget for song list item for better performance
+class _SongListItem extends StatelessWidget {
+  final Song song;
+  final List<Song> songs;
+  final VoidCallback onTap;
+
+  const _SongListItem({
+    required this.song,
+    required this.songs,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.grey[900]?.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        // ✅ UPDATED: Using AlbumArtWidget instead of Icon
+        leading: AlbumArtWidget(
+          song: song,
+          size: 50.0,
+          borderRadius: 8.0,
+          showShadow: true,
+        ),
+        title: Text(
+          song.title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          '${song.artist} • ${song.formattedDuration}',
+          style: const TextStyle(
+            color: Colors.white54,
+            fontSize: 14,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Icon(
+          Icons.play_arrow,
+          color: Colors.purple.shade300,
+        ),
+        onTap: onTap,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      ),
+    );
   }
 }

@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import '../services/background_audio_service.dart';
 import '../models/song_model.dart';
-import '../main.dart';
 
 // 🎵 Main audio handler provider - this will be overridden in main.dart
 final audioHandlerProvider = Provider<BackgroundAudioHandler>((ref) {
