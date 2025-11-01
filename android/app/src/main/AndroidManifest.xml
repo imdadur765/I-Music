@@ -24,6 +24,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- 🔊 AUDIO PERMISSIONS -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <!-- 📱 HARDWARE FEATURES -->
     <uses-feature
         android:name="android.hardware.audio.output"
@@ -98,25 +101,19 @@
                 android:resource="@drawable/launch_background" />
         </activity>
 
-        <!-- 🎵 BACKGROUND AUDIO SERVICE - FIXED FOR SWIPE CLOSE -->
+        <!-- 🎵 BACKGROUND AUDIO SERVICE - IMPROVED CONFIGURATION -->
         <service
-             android:name="com.ryanheise.audioservice.AudioService"
-             android:exported="true"
-             android:foregroundServiceType="mediaPlayback"
-             android:stopWithTask="true"
-             android:enabled="true"
-             android:priority="1000"
-             android:isolatedProcess="false"
-             android:taskAffinity=""
-             android:launchMode="singleInstance">
+            android:name="com.ryanheise.audioservice.AudioService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback"
+            android:stopWithTask="true"
+            android:enabled="true"
+            android:priority="1000"
+            android:isolatedProcess="false">
 
-               <intent-filter>
-                  <action android:name="android.media.browse.MediaBrowserService" />
-               </intent-filter>
-    
-            <meta-data
-                android:name="android.service.media.browse.MediaBrowserService"
-                android:value="com.ryanheise.audioservice.MediaBrowser" />
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
         </service>
 
         <!-- 🎵 MEDIA BUTTON RECEIVER -->
@@ -128,7 +125,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- 🔔 NOTIFICATION CHANNELS - ENHANCED -->
+        <!-- 🔔 NOTIFICATION CONFIGURATION - UPDATED -->
         <meta-data
             android:name="com.ryanheise.audioservice.NotificationChannelId"
             android:value="com.imusic.channel.audio" />
@@ -150,7 +147,15 @@
             android:resource="@color/purple_500" />
         <meta-data
             android:name="com.ryanheise.audioservice.NotificationIcon"
-            android:resource="@mipmap/ic_launcher" />
+            android:resource="@drawable/ic_music_note" /> <!-- ✅ CHANGED to your custom icon -->
+
+        <!-- ✅ ADDED: AUDIO ATTRIBUTES FOR BETTER AUDIO HANDLING -->
+        <meta-data
+            android:name="com.ryanheise.audioservice.AndroidAudioAttributesUsage"
+            android:value="USAGE_MEDIA" />
+        <meta-data
+            android:name="com.ryanheise.audioservice.AndroidAudioAttributesContentType" 
+            android:value="CONTENT_TYPE_MUSIC" />
 
         <!-- 📱 FLUTTER EMBEDDING -->
         <meta-data

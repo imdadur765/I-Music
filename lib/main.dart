@@ -1,4 +1,4 @@
-// lib/main.dart - COMPLETE FIXED VERSION FOR ANDROID 15+
+// lib/main.dart - COMPLETE FIXED VERSION FOR ANDROID 15+ WITH DISK CACHE
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -15,6 +15,7 @@ import 'app.dart';
 import 'models/song_model.dart';
 import 'models/playlist_model.dart';
 import 'services/background_audio_service.dart';
+import 'services/album_art_service.dart'; // ✅ ADDED FOR DISK CACHE
 
 // ✅ FIXED: Use AudioHandler instead of BackgroundAudioHandler
 late AudioHandler globalAudioHandler;
@@ -26,6 +27,19 @@ bool _hasStoragePermission = false;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ✅ ADDED: Setup app lifecycle listeners FIRST
+  _setupAppLifecycleListeners();
+
+  // ✅ ADDED: Initialize Disk Cache FIRST
+  try {
+    debugPrint('💾 Initializing disk cache...');
+    await AlbumArtService.init();
+    debugPrint('✅ Disk cache initialized successfully');
+  } catch (e) {
+    debugPrint('❌ Disk cache initialization failed: $e');
+    // Continue without cache - app will still work
+  }
 
   // Lock orientation early
   await SystemChrome.setPreferredOrientations([
@@ -63,6 +77,28 @@ Future<void> main() async {
   }
 }
 
+// ✅ ADDED: Setup app lifecycle listeners
+void _setupAppLifecycleListeners() {
+  AppLifecycleListener(
+    onStateChange: (state) {
+      debugPrint('🔄 App lifecycle state changed: $state');
+      
+      if (state == AppLifecycleState.paused) {
+        // App background ja raha hai
+        debugPrint('📱 App going to background - ensuring notification');
+      } else if (state == AppLifecycleState.resumed) {
+        // App wapas aa raha hai  
+        debugPrint('📱 App coming to foreground');
+      } else if (state == AppLifecycleState.detached) {
+        // App completely close ho raha hai
+        debugPrint('📱 App being detached - cleaning up');
+        _stopAudioServiceCompletely();
+      }
+    },
+  );
+  debugPrint('✅ App lifecycle listeners setup completed');
+}
+
 // ✅ ADD THIS METHOD: Handle native method calls
 void _setupNativeMethodHandler() {
   _nativeChannel.setMethodCallHandler((call) async {
@@ -87,6 +123,21 @@ void _setupNativeMethodHandler() {
     }
   });
   debugPrint('✅ Native method handler setup completed');
+}
+
+// ✅ ADDED: Check if audio service is actually running
+Future<bool> isAudioServiceRunning() async {
+  try {
+    await globalAudioHandler.customAction('ping');
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// ✅ ADDED: Safe audio handler access
+AudioHandler getAudioHandler() {
+  return globalAudioHandler;
 }
 
 // ✅ ADD THIS METHOD: Completely stop audio service
@@ -397,6 +448,7 @@ Future<AudioHandler> _initializeAudioService() async {
         androidResumeOnClick: true,
         notificationColor: Colors.deepPurple,
         androidNotificationOngoing: false,
+        androidNotificationIcon: 'drawable/ic_music_note', // ✅ CHANGED TO CUSTOM ICON
       ),
     );
 
