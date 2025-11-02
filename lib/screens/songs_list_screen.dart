@@ -45,12 +45,19 @@ class _SongsListScreenState extends ConsumerState<SongsListScreen> {
     _isPreloading = true;
     debugPrint('🚀 Starting thumbnail preload for ${songs.length} songs');
     
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      AlbumArtService.preloadThumbnails(songs).then((_) {
-        debugPrint('✅ Thumbnail preload completed');
-        _isPreloading = false;
+    for (final song in songs) {
+      AlbumArtService.getThumbnail(
+        songId: song.mediaStoreId,
+        songTitle: song.title,
+        artist: song.artist,
+      ).then((data) {
+        if (data != null) {
+          debugPrint('✅ Preloaded thumbnail for: ${song.title}');
+        }
+      }).catchError((e) {
+        debugPrint('❌ Error preloading thumbnail for ${song.title}: $e');
       });
-    });
+    }
   }
 
   @override

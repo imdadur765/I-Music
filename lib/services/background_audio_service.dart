@@ -295,37 +295,45 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
     }
   }
 
+  // ✅ FIXED: YAHAN MAJOR CHANGES KIYE HAIN - DIRECT FILE URI USE KARO
   Future<MediaItem> _songToMediaItem(Song song) async {
     try {
-      Uri? artUri = await _getNotificationArtUri(song);
+      // ✅ DIRECT ALBUM ART FETCH KARO
+      Uint8List? albumArtBytes = await AlbumArtService.getAlbumArt(
+        songId: song.mediaStoreId,
+        songTitle: song.title,
+        artist: song.artist,
+      );
 
-      if (artUri == null) {
-        debugPrint('⚠️ No artUri found, using default placeholder');
+      Uri? artUri;
+      
+      if (albumArtBytes != null && albumArtBytes.isNotEmpty) {
+        debugPrint('🎨 Album art found: ${albumArtBytes.length} bytes');
+        
+        // ✅ DIRECT TEMP FILE BANAO AUR FILE URI USE KARO
+        final tempDir = await getTemporaryDirectory();
+        final tempFile = File('${tempDir.path}/album_art_${song.id}_${DateTime.now().millisecondsSinceEpoch}.jpg');
+        await tempFile.writeAsBytes(albumArtBytes);
+        
+        artUri = Uri.file(tempFile.path);
+        debugPrint('📁 Album art saved to: ${tempFile.path}');
+        
+        // ✅ CACHE MEIN STORE KARO
+        _albumArtCache[song.id] = tempFile.path;
+      } else {
+        debugPrint('⚠️ No album art found, using placeholder');
         artUri = await _generatePlaceholderArt(song);
       }
 
-      // ✅ FIXED: Remove toMap() and use direct properties
+      // ✅ SIMPLE EXTRAS - COMPLEX METADATA HATA DIYA
       final extras = <String, dynamic>{
         'uri': song.uri,
         'album': song.album,
         'artist': song.artist,
         'mediaStoreId': song.mediaStoreId,
-        
-        // ✅ ANDROID 15+ SPECIFIC METADATA (YEH ZAROORI HAI)
+        // ✅ ONLY NECESSARY METADATA
         'android.media.metadata.ALBUM_ART_URI': artUri.toString(),
-        'android.media.metadata.ALBUM_ART': artUri.toString(),
-        'android.media.metadata.TITLE': song.title,
-        'android.media.metadata.ARTIST': song.artist,
-        'android.media.metadata.ALBUM': song.album ?? 'Unknown Album',
-        'android.media.metadata.DURATION': song.duration,
       };
-
-      // Add other extras if available
-      if (song.albumArt != null && song.albumArt!.isNotEmpty) extras['albumArt'] = song.albumArt;
-      if (song.genre != null && song.genre!.isNotEmpty) extras['genre'] = song.genre;
-      if (song.albumArt != null && song.albumArt!.isNotEmpty) {
-          extras['albumArt'] = song.albumArt!;}
-      if (song.genre!.isNotEmpty) extras['genre'] = song.genre;
 
       final mediaItem = MediaItem(
         id: song.id,
@@ -338,12 +346,12 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
         extras: extras,
       );
 
-      debugPrint('🎵 MediaItem created with artUri: ${mediaItem.artUri}');
-      debugPrint('📱 Android metadata: ${extras['android.media.metadata.ALBUM_ART_URI']}');
+      debugPrint('🎵 MediaItem created with artUri: $artUri');
       
       return mediaItem;
     } catch (e) {
       debugPrint('❌ Error creating MediaItem: $e');
+      // ✅ SIMPLE FALLBACK
       final placeholderUri = await _generatePlaceholderArt(song);
       return MediaItem(
         id: song.id,
@@ -352,37 +360,28 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
         album: song.album ?? 'Unknown Album',
         duration: Duration(milliseconds: song.duration),
         artUri: placeholderUri,
-        extras: {
-          'uri': song.uri,
-          'android.media.metadata.ALBUM_ART_URI': placeholderUri.toString(),
-        },
       );
     }
   }
 
+  // ✅ FIXED: SIMPLIFIED NOTIFICATION ART URI
   Future<Uri?> _getNotificationArtUri(Song song) async {
     try {
-      debugPrint('🔔 Getting notification art for: ${song.title} (MediaStore ID: ${song.mediaStoreId})');
+      debugPrint('🔔 Getting notification art for: ${song.title}');
 
-      // ✅ Check cache first
+      // ✅ CHECK CACHE FIRST
       if (_albumArtCache.containsKey(song.id)) {
-        final cachedUri = _albumArtCache[song.id];
-        debugPrint('✅ Using cached artUri: $cachedUri');
-        return Uri.parse(cachedUri!);
-      }
-
-      // ✅ TRY 1: MediaStore Album Art (Most reliable for Android 15+)
-      if (song.mediaStoreId > 0) {
-        final mediaStoreUri = await _getMediaStoreAlbumArtUri(song.mediaStoreId);
-        if (mediaStoreUri != null) {
-          _albumArtCache[song.id] = mediaStoreUri.toString();
-          debugPrint('✅ Using MediaStore album art: $mediaStoreUri');
-          return mediaStoreUri;
+        final cachedPath = _albumArtCache[song.id];
+        if (cachedPath != null) {
+          final file = File(cachedPath);
+          if (await file.exists()) {
+            debugPrint('✅ Using cached album art: $cachedPath');
+            return Uri.file(cachedPath);
+          }
         }
       }
 
-      // ✅ TRY 2: Extract fresh album art and save as content URI
-      debugPrint('🔄 Extracting fresh album art for notification...');
+      // ✅ DIRECT ALBUM ART FETCH
       final albumArtBytes = await AlbumArtService.getAlbumArt(
         songId: song.mediaStoreId,
         songTitle: song.title,
@@ -392,107 +391,27 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
       if (albumArtBytes != null && albumArtBytes.isNotEmpty) {
         debugPrint('🎨 Extracted ${albumArtBytes.length} bytes of album art');
         
-        // ✅ Save and get content URI for Android 15+
-        final contentUri = await _saveAndGetContentUri(albumArtBytes, 'notif_${song.id}_${DateTime.now().millisecondsSinceEpoch}');
-        if (contentUri != null) {
-          _albumArtCache[song.id] = contentUri.toString();
-          debugPrint('✅ Saved album art as content URI: $contentUri');
-          return contentUri;
-        }
+        // ✅ SAVE TO TEMP FILE
+        final tempDir = await getTemporaryDirectory();
+        final tempFile = File('${tempDir.path}/notif_${song.id}.jpg');
+        await tempFile.writeAsBytes(albumArtBytes);
+        
+        _albumArtCache[song.id] = tempFile.path;
+        debugPrint('✅ Album art saved to: ${tempFile.path}');
+        
+        return Uri.file(tempFile.path);
       }
 
-      // ✅ TRY 3: Generate placeholder as content URI
-      debugPrint('🔄 Generating placeholder art...');
-      final placeholderUri = await _generatePlaceholderArt(song);
-      _albumArtCache[song.id] = placeholderUri.toString();
-      
-      debugPrint('✅ Using placeholder art: $placeholderUri');
-      return placeholderUri;
+      debugPrint('❌ No album art available');
+      return null;
 
     } catch (e) {
       debugPrint('❌ Error in _getNotificationArtUri: $e');
-      // Final fallback
-      return await _generatePlaceholderArt(song);
-    }
-  }
-
-  // ✅ FIXED: MediaStore URI check using MethodChannel
-  Future<Uri?> _getMediaStoreAlbumArtUri(int mediaStoreId) async {
-    try {
-      if (mediaStoreId <= 0) return null;
-      
-      debugPrint('🎵 Checking MediaStore album art for ID: $mediaStoreId');
-      
-      // ✅ Android native side se check karwao via MethodChannel
-      if (Platform.isAndroid) {
-        try {
-          final result = await const MethodChannel('i_music/media_store')
-              .invokeMethod('checkAlbumArtExists', {
-                'albumId': mediaStoreId,
-              });
-          
-          if (result == true) {
-            final uri = Uri.parse('content://media/external/audio/albumart/$mediaStoreId');
-            debugPrint('✅ MediaStore album art exists: $uri');
-            return uri;
-          }
-        } catch (e) {
-          debugPrint('⚠️ MethodChannel check failed: $e');
-        }
-      }
-      
-      return null;
-    } catch (e) {
-      debugPrint('❌ Error in _getMediaStoreAlbumArtUri: $e');
       return null;
     }
   }
 
-  // ✅ IMPROVED: Content URI generation with better error handling
-  Future<Uri?> _saveAndGetContentUri(List<int> bytes, String filename) async {
-    try {
-      if (!Platform.isAndroid) {
-        // iOS/other platforms - use file URI
-        final tempDir = await getTemporaryDirectory();
-        final file = File('${tempDir.path}/$filename.jpg');
-        await file.writeAsBytes(bytes);
-        return Uri.file(file.path);
-      }
-
-      // Android - try FileProvider first
-      final tempDir = await getTemporaryDirectory();
-      final file = File('${tempDir.path}/$filename.jpg');
-      await file.writeAsBytes(bytes);
-
-      debugPrint('📁 Temporary file created: ${file.path}');
-
-      try {
-        final Map<String, dynamic> result = await const MethodChannel('i_music/file_provider')
-            .invokeMethod('getContentUri', {
-              'filePath': file.path,
-              'authority': 'com.example.i_music.fileprovider',
-            });
-        
-        if (result['contentUri'] != null) {
-          final contentUri = Uri.parse(result['contentUri']);
-          debugPrint('✅ Content URI obtained: $contentUri');
-          return contentUri;
-        }
-      } catch (e) {
-        debugPrint('⚠️ FileProvider failed: $e');
-      }
-
-      // Fallback: Use file URI (might not work on Android 15+ but try)
-      debugPrint('🔄 Using file URI as fallback');
-      return Uri.file(file.path);
-
-    } catch (e) {
-      debugPrint('❌ Error in _saveAndGetContentUri: $e');
-      return null;
-    }
-  }
-
-  // ✅ FIXED: Placeholder art generation with proper null safety
+  // ✅ FIXED: SIMPLIFIED PLACEHOLDER ART
   Future<Uri> _generatePlaceholderArt(Song song) async {
     try {
       debugPrint('🎨 Generating placeholder art for: ${song.title}');
@@ -501,18 +420,22 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
       final pictureRecorder = ui.PictureRecorder();
       final canvas = ui.Canvas(pictureRecorder);
 
+      // ✅ SIMPLE BACKGROUND COLOR
       final hash = song.title.hashCode;
       final colorValue = (hash & 0xFFFFFF) | 0xFF000000;
       final backgroundColor = ui.Color(colorValue);
 
       final backgroundPaint = ui.Paint()..color = backgroundColor;
       canvas.drawRect(ui.Rect.fromLTRB(0, 0, size.toDouble(), size.toDouble()), backgroundPaint);
+
+      // ✅ SIMPLE TEXT
       final textPainter = TextPainter(
-        text: const TextSpan(
-          text: '🎵',
-          style: TextStyle(
+        text: TextSpan(
+          text: song.title.isNotEmpty ? song.title[0].toUpperCase() : 'M',
+          style: const TextStyle(
             fontSize: 180,
-            color: Colors.white, // ✅ FIXED: Use Colors.white directly
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
           ),
         ),
         textDirection: TextDirection.ltr,
@@ -537,31 +460,14 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
         await file.writeAsBytes(byteData.buffer.asUint8List());
 
         debugPrint('✅ Placeholder art generated: ${file.path}');
-        
-        // Try to get content URI for placeholder as well
-        if (Platform.isAndroid) {
-          try {
-            final Map<String, dynamic> result = await const MethodChannel('i_music/file_provider')
-                .invokeMethod('getContentUri', {
-                  'filePath': file.path,
-                  'authority': 'com.example.i_music.fileprovider',
-                });
-            
-            if (result['contentUri'] != null) {
-              return Uri.parse(result['contentUri']);
-            }
-          } catch (e) {
-            debugPrint('⚠️ FileProvider for placeholder error: $e');
-          }
-        }
-        
         return Uri.file(file.path);
       }
 
       throw Exception('Failed to generate placeholder art');
     } catch (e) {
       debugPrint('❌ Error generating placeholder art: $e');
-      return Uri.parse('https://via.placeholder.com/512/3366FF/FFFFFF?text=Music');
+      // ✅ ULTIMATE FALLBACK
+      return Uri.parse('file:///android_asset/placeholder_art.png');
     }
   }
 
