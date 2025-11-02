@@ -42,6 +42,21 @@ class MainActivity : AudioServiceActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // ✅ FileProvider setup - TUMHARA BANAYA HUA FILE KAAM AAYEGA
+        FileProviderHelper.setupMethodChannel(flutterEngine, this)
+
+        // ✅ NEW: MethodChannel for album art existence check
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "i_music/media_store").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "checkAlbumArtExists" -> {
+                    val albumId = call.argument<Number>("albumId")?.toLong()
+                    handleCheckAlbumArtExists(albumId, result)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        // ✅ Existing MethodChannel for media_store
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getAllSongs" -> handleGetAllSongs(result)
@@ -52,7 +67,7 @@ class MainActivity : AudioServiceActivity() {
                     result.success("App minimized")
                 }
                 "getAlbumArt" -> {
-                    // ✅ FIXED: Use Number type and convert to Long - YAHI CHANGE KIYA HAI
+                    // ✅ FIXED: Use Number type and convert to Long
                     val songId = call.argument<Number>("songId")?.toLong()
                     val title = call.argument<String>("title")
                     val artist = call.argument<String>("artist")
@@ -67,6 +82,27 @@ class MainActivity : AudioServiceActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    // ✅ NEW: Check if album art exists in MediaStore
+    private fun handleCheckAlbumArtExists(albumId: Long?, result: MethodChannel.Result) {
+        try {
+            if (albumId == null || albumId <= 0) {
+                result.success(false)
+                return
+            }
+
+            val albumArtUri = Uri.parse("content://media/external/audio/albumart")
+            val albumUri = ContentUris.withAppendedId(albumArtUri, albumId)
+            
+            contentResolver.openInputStream(albumUri)?.use { 
+                result.success(true)
+            } ?: result.success(false)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error checking album art: $e")
+            result.success(false)
         }
     }
 
@@ -159,7 +195,7 @@ class MainActivity : AudioServiceActivity() {
                             val bitmap = BitmapFactory.decodeStream(inputStream)
                             if (bitmap != null) {
                                 Log.d(TAG, "✅ Successfully extracted album art via MediaStore")
-                                return convertBitmapToByteArray(bitmap, 85) // Good quality
+                                return convertBitmapToByteArray(bitmap, 85)
                             }
                         }
                     }
@@ -281,7 +317,7 @@ class MainActivity : AudioServiceActivity() {
             val embeddedPicture = retriever.embeddedPicture
             if (embeddedPicture != null) {
                 Log.d(TAG, "🎵 Successfully extracted album art from file metadata")
-                return embeddedPicture // Return as-is without recompression
+                return embeddedPicture
             }
             null
         } catch (e: Exception) {
@@ -359,7 +395,7 @@ class MainActivity : AudioServiceActivity() {
         super.onDestroy()
     }
 
-    // 🎵 FETCH ALL SONGS (Keep your existing implementation)
+    // 🎵 FETCH ALL SONGS
     private fun handleGetAllSongs(result: MethodChannel.Result) {
         if (!hasStoragePermission()) {
             result.error("PERMISSION_DENIED", "Storage permission required", null)
@@ -412,7 +448,7 @@ class MainActivity : AudioServiceActivity() {
         ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST_CODE)
     }
 
-    // 🎧 GET ALL SONGS FROM MEDIA STORE (Keep your existing implementation)
+    // 🎧 GET ALL SONGS FROM MEDIA STORE
     private fun getAllSongsFromMediaStore(): ArrayList<HashMap<String, Any>> {
         val songsList = ArrayList<HashMap<String, Any>>()
 

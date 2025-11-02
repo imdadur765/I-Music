@@ -7,6 +7,7 @@ class SettingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopScope(
       // ✅ Updated to PopScope instead of deprecated WillPopScope
+      // ignore: deprecated_member_use
       onPopInvoked: (didPop) {
         if (!didPop) {
           debugPrint('🎯 Back button pressed on SettingsPage - Going back to SongsList');

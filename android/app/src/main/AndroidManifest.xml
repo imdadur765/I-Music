@@ -4,21 +4,17 @@
     package="com.example.i_music">
 
     <!-- 🎵 AUDIO & STORAGE PERMISSIONS -->
-    <!-- Android 13+ (API 33+) ke liye -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    
-    <!-- Android 12 aur niche ke liye -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
-    
-    <!-- ❌ REMOVED: MANAGE_EXTERNAL_STORAGE - Google Play policy violation -->
-    
+
     <!-- 🔔 NOTIFICATION PERMISSIONS -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    
+
     <!-- ⚡ PERFORMANCE PERMISSIONS -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -61,7 +57,8 @@
             android:windowSoftInputMode="adjustResize"
             android:resizeableActivity="true"
             android:supportsPictureInPicture="false"
-            android:turnScreenOn="false">
+            android:showWhenLocked="true"
+            android:turnScreenOn="true">   <!-- ✅ FIXED: Kept only one turnScreenOn -->
 
             <!-- 🚀 HIGH REFRESH RATE METADATA -->
             <meta-data
@@ -92,6 +89,12 @@
                 <data android:pathPattern=".*\\.flac" />
             </intent-filter>
 
+            <!-- 🎵 Media Session Intent Filter for Android 15+ -->
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
@@ -101,7 +104,7 @@
                 android:resource="@drawable/launch_background" />
         </activity>
 
-        <!-- 🎵 BACKGROUND AUDIO SERVICE - IMPROVED CONFIGURATION -->
+        <!-- 🎵 BACKGROUND AUDIO SERVICE - ANDROID 15+ OPTIMIZED -->
         <service
             android:name="com.ryanheise.audioservice.AudioService"
             android:exported="true"
@@ -113,19 +116,31 @@
 
             <intent-filter>
                 <action android:name="android.media.browse.MediaBrowserService" />
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
             </intent-filter>
         </service>
 
-        <!-- 🎵 MEDIA BUTTON RECEIVER -->
+        <!-- 🎵 MEDIA BUTTON RECEIVER - UPDATED FOR ANDROID 15+ -->
         <receiver
             android:name="com.ryanheise.audioservice.MediaButtonReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
+                <action android:name="android.intent.action.HEADSET_PLUG" />
             </intent-filter>
         </receiver>
 
-        <!-- 🔔 NOTIFICATION CONFIGURATION - UPDATED -->
+        <provider
+          android:name="androidx.core.content.FileProvider"
+          android:authorities="com.example.i_music.fileprovider"
+          android:exported="false"
+          android:grantUriPermissions="true">
+         <meta-data
+            android:name="android.support.FILE_PROVIDER_PATHS"
+            android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- 🔔 NOTIFICATION CONFIGURATION - ANDROID 15+ COMPATIBLE -->
         <meta-data
             android:name="com.ryanheise.audioservice.NotificationChannelId"
             android:value="com.imusic.channel.audio" />
@@ -135,27 +150,38 @@
         <meta-data
             android:name="com.ryanheise.audioservice.NotificationChannelDescription"
             android:value="Music playback controls and notifications" />
-        
+
         <!-- 🎯 NOTIFICATION CHANNEL IMPORTANCE -->
         <meta-data
             android:name="com.ryanheise.audioservice.NotificationChannelImportance"
             android:value="IMPORTANCE_LOW" />
-        
-        <!-- 🔥 CRITICAL FOR ANDROID 12+ -->
+
+        <!-- 🔥 CRITICAL FOR ANDROID 15+ NOTIFICATION ART -->
         <meta-data
             android:name="com.ryanheise.audioservice.NotificationColor"
             android:resource="@color/purple_500" />
         <meta-data
             android:name="com.ryanheise.audioservice.NotificationIcon"
-            android:resource="@drawable/ic_music_note" /> <!-- ✅ CHANGED to your custom icon -->
+            android:resource="@drawable/ic_notification" />
 
-        <!-- ✅ ADDED: AUDIO ATTRIBUTES FOR BETTER AUDIO HANDLING -->
+        <!-- ✅ ANDROID 15+ SPECIFIC SETTINGS -->
         <meta-data
             android:name="com.ryanheise.audioservice.AndroidAudioAttributesUsage"
             android:value="USAGE_MEDIA" />
         <meta-data
             android:name="com.ryanheise.audioservice.AndroidAudioAttributesContentType" 
             android:value="CONTENT_TYPE_MUSIC" />
+        
+        <!-- ✅ FOR BETTER MEDIA SESSION SUPPORT -->
+        <meta-data
+            android:name="com.ryanheise.audioservice.AndroidNotificationUsage"
+            android:value="USAGE_MEDIA" />
+        <meta-data
+            android:name="com.ryanheise.audioservice.AndroidEnableQueue"
+            android:value="true" />
+        <meta-data
+            android:name="com.ryanheise.audioservice.AndroidStopForegroundOnPause"
+            android:value="false" />
 
         <!-- 📱 FLUTTER EMBEDDING -->
         <meta-data
@@ -169,5 +195,10 @@
         <meta-data
             android:name="android.max_aspect"
             android:value="2.1" />
+
+        <!-- ✅ MEDIA SESSION COMPATIBILITY -->
+        <meta-data
+            android:name="android.media.session.MediaButtonReceiver"
+            android:value="com.ryanheise.audioservice.MediaButtonReceiver" />
     </application>
 </manifest>

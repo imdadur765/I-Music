@@ -10,7 +10,7 @@ import 'package:i_music/screens/settings_page.dart';
 import 'package:i_music/services/album_art_service.dart';
 
 // MethodChannel for native communication
-final MethodChannel _nativeChannel = MethodChannel('i_music/media_store');
+const MethodChannel _nativeChannel = MethodChannel('i_music/media_store');
 
 class SongsListScreen extends ConsumerStatefulWidget {
   const SongsListScreen({super.key});
@@ -65,6 +65,7 @@ class _SongsListScreenState extends ConsumerState<SongsListScreen> {
 
     return PopScope(
       canPop: false,
+      // ignore: deprecated_member_use
       onPopInvoked: (bool didPop) async {
         if (!didPop) {
           debugPrint('🎯 Back button on SongsListScreen - MINIMIZING APP');
@@ -264,6 +265,7 @@ class _OptimizedSongListItemState extends State<_OptimizedSongListItem>
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
+        // ignore: deprecated_member_use
         color: Colors.grey[900]?.withOpacity(0.5),
         borderRadius: BorderRadius.circular(12),
       ),
@@ -364,6 +366,7 @@ class OptimizedAlbumArtWidget extends StatelessWidget {
                   borderRadius: BorderRadius.circular(borderRadius),
                   boxShadow: [
                     BoxShadow(
+                      // ignore: deprecated_member_use
                       color: Colors.black.withOpacity(0.3),
                       blurRadius: 4,
                       offset: const Offset(0, 2),

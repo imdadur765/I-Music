@@ -1,32 +1,55 @@
-// lib/services/background_audio_service.dart - COMPLETELY FIXED WITH NOTIFICATION SUPPORT
+// lib/services/background_audio_service.dart - COMPLETELY FIXED
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:audio_session/audio_session.dart';
-import 'package:flutter/material.dart'; // ✅ Single import for everything
+import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter/services.dart';
 
 import '../models/song_model.dart';
 import 'album_art_service.dart';
 
-class BackgroundAudioHandler extends BaseAudioHandler {
+class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
   final AudioPlayer _player;
   final List<Song> _currentQueue = [];
   int _currentIndex = 0;
   bool _isInitialized = false;
   bool _isDisposed = false;
 
-  // ✅ FIXED: Album art cache to prevent multiple file operations
   final Map<String, String> _albumArtCache = {};
 
   BackgroundAudioHandler() : _player = AudioPlayer() {
     _initializePlayer();
   }
 
+  // ✅ FIXED: Streams with correct return types
+  Stream<Duration> get durationStream => _player.durationStream.where((duration) => duration != null).cast<Duration>();
+  Stream<Duration> get positionStream => _player.positionStream;
+  Stream<Duration> get bufferedPositionStream => _player.bufferedPositionStream;
+  
+  // ✅ FIXED: Return ProcessingState instead of AudioProcessingState
+  Stream<ProcessingState> get processingStateStream => _player.processingStateStream;
+  
+  // ✅ FIXED: Add playerStateStream
+  Stream<PlayerState> get playerStateStream => _player.playerStateStream;
+
+  // ✅ FIXED: Getters without @override
+  Duration get position => _player.position;
+  Duration? get duration => _player.duration;
+
+  Future<void> setVolume(double volume) async {
+    await _player.setVolume(volume);
+  }
+  @override
+  Future<void> setSpeed(double speed) async {
+    await _player.setSpeed(speed);
+  }
+
   Future<void> _initializePlayer() async {
     if (_isInitialized || _isDisposed) return;
-    
+
     try {
       final session = await AudioSession.instance;
       await session.configure(const AudioSessionConfiguration(
@@ -51,7 +74,7 @@ class BackgroundAudioHandler extends BaseAudioHandler {
 
   void _setupAudioListeners() {
     _player.playbackEventStream.listen(_updatePlaybackState);
-    
+
     _player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) {
         _handleTrackCompletion();
@@ -84,7 +107,7 @@ class BackgroundAudioHandler extends BaseAudioHandler {
 
   void _updatePlaybackState(PlaybackEvent event) {
     if (playbackState.isClosed || _isDisposed) return;
-    
+
     try {
       playbackState.add(PlaybackState(
         controls: [
@@ -151,13 +174,13 @@ class BackgroundAudioHandler extends BaseAudioHandler {
   @override
   Future<dynamic> customAction(String name, [dynamic extras]) async {
     debugPrint('🎛️ Custom action received: $name');
-    
+
     switch (name) {
       case 'stopFromNative':
         debugPrint('🛑 Stop command from native received');
         await _forceCleanup();
         return 'stopped';
-      
+
       case 'dispose':
         debugPrint('🔥 Dispose command received');
         await dispose();
@@ -172,7 +195,7 @@ class BackgroundAudioHandler extends BaseAudioHandler {
         debugPrint('🔍 Debugging notification art');
         await _debugNotificationArt();
         return 'debug_completed';
-      
+
       default:
         debugPrint('❌ Unknown custom action: $name');
         return null;
@@ -181,16 +204,16 @@ class BackgroundAudioHandler extends BaseAudioHandler {
 
   Future<void> _forceCleanup() async {
     if (_isDisposed) return;
-    
+
     debugPrint('🧹 FORCE CLEANUP - Stopping everything');
     try {
       await _player.stop();
       await _player.dispose();
-      
+
       _currentQueue.clear();
       _currentIndex = 0;
       _albumArtCache.clear();
-      
+
       if (!playbackState.isClosed) {
         playbackState.add(PlaybackState(
           controls: [],
@@ -203,8 +226,7 @@ class BackgroundAudioHandler extends BaseAudioHandler {
           queueIndex: null,
         ));
       }
-      
-      _isDisposed = true;
+
       debugPrint('✅ FORCE CLEANUP COMPLETED - Ready for app death');
     } catch (e) {
       debugPrint('❌ Force cleanup error: $e');
@@ -215,7 +237,7 @@ class BackgroundAudioHandler extends BaseAudioHandler {
     try {
       debugPrint('🎵 Setting song: ${song.title}');
       debugPrint('🎵 MediaStore ID: ${song.mediaStoreId}');
-      
+
       if (song.uri.isEmpty) throw ArgumentError('Song URI cannot be empty');
       if (queue.isEmpty) throw ArgumentError('Queue cannot be empty');
 
@@ -229,7 +251,7 @@ class BackgroundAudioHandler extends BaseAudioHandler {
 
       final currentMediaItem = await _songToMediaItem(song);
       debugPrint('🎵 MediaItem artUri: ${currentMediaItem.artUri}');
-      
+
       if (!mediaItem.isClosed) mediaItem.value = currentMediaItem;
 
       final audioSources = queue.map((s) => AudioSource.uri(Uri.parse(s.uri))).toList();
@@ -262,10 +284,10 @@ class BackgroundAudioHandler extends BaseAudioHandler {
       debugPrint('🔄 Executing fallback playback for: ${song.title}');
       await _safeStopPlayer();
       await _player.setAudioSource(AudioSource.uri(Uri.parse(song.uri)), preload: true);
-      
+
       final mediaItemValue = await _songToMediaItem(song);
       if (!mediaItem.isClosed) mediaItem.value = mediaItemValue;
-      
+
       await _player.play();
       debugPrint('✅ Fallback playback successful');
     } catch (fallbackError) {
@@ -282,6 +304,29 @@ class BackgroundAudioHandler extends BaseAudioHandler {
         artUri = await _generatePlaceholderArt(song);
       }
 
+      // ✅ FIXED: Remove toMap() and use direct properties
+      final extras = <String, dynamic>{
+        'uri': song.uri,
+        'album': song.album,
+        'artist': song.artist,
+        'mediaStoreId': song.mediaStoreId,
+        
+        // ✅ ANDROID 15+ SPECIFIC METADATA (YEH ZAROORI HAI)
+        'android.media.metadata.ALBUM_ART_URI': artUri.toString(),
+        'android.media.metadata.ALBUM_ART': artUri.toString(),
+        'android.media.metadata.TITLE': song.title,
+        'android.media.metadata.ARTIST': song.artist,
+        'android.media.metadata.ALBUM': song.album ?? 'Unknown Album',
+        'android.media.metadata.DURATION': song.duration,
+      };
+
+      // Add other extras if available
+      if (song.albumArt != null && song.albumArt!.isNotEmpty) extras['albumArt'] = song.albumArt;
+      if (song.genre != null && song.genre!.isNotEmpty) extras['genre'] = song.genre;
+      if (song.albumArt != null && song.albumArt!.isNotEmpty) {
+          extras['albumArt'] = song.albumArt!;}
+      if (song.genre!.isNotEmpty) extras['genre'] = song.genre;
+
       final mediaItem = MediaItem(
         id: song.id,
         title: song.title,
@@ -290,20 +335,12 @@ class BackgroundAudioHandler extends BaseAudioHandler {
         duration: Duration(milliseconds: song.duration),
         artUri: artUri,
         genre: song.genre,
-        extras: {
-          'uri': song.uri,
-          'song_object': song,
-          'album': song.album,
-          'artist': song.artist,
-          'albumArt': song.albumArt,
-          'playCount': song.playCount,
-          'isFavorite': song.isFavorite,
-          'trackNumber': song.trackNumber,
-          'year': song.year,
-        },
+        extras: extras,
       );
 
       debugPrint('🎵 MediaItem created with artUri: ${mediaItem.artUri}');
+      debugPrint('📱 Android metadata: ${extras['android.media.metadata.ALBUM_ART_URI']}');
+      
       return mediaItem;
     } catch (e) {
       debugPrint('❌ Error creating MediaItem: $e');
@@ -317,7 +354,7 @@ class BackgroundAudioHandler extends BaseAudioHandler {
         artUri: placeholderUri,
         extras: {
           'uri': song.uri,
-          'song_object': song,
+          'android.media.metadata.ALBUM_ART_URI': placeholderUri.toString(),
         },
       );
     }
@@ -325,86 +362,162 @@ class BackgroundAudioHandler extends BaseAudioHandler {
 
   Future<Uri?> _getNotificationArtUri(Song song) async {
     try {
-      debugPrint('🔔 Getting notification art for: ${song.title}');
-      
+      debugPrint('🔔 Getting notification art for: ${song.title} (MediaStore ID: ${song.mediaStoreId})');
+
+      // ✅ Check cache first
       if (_albumArtCache.containsKey(song.id)) {
         final cachedUri = _albumArtCache[song.id];
-        debugPrint('✅ Using cached artUri for notification: $cachedUri');
+        debugPrint('✅ Using cached artUri: $cachedUri');
         return Uri.parse(cachedUri!);
       }
 
-      if (song.albumArt != null && song.albumArt!.isNotEmpty) {
-        if (song.albumArt!.startsWith('http')) {
-          return Uri.parse(song.albumArt!);
-        } else {
-          final file = File(song.albumArt!);
-          if (await file.exists()) {
-            return Uri.file(song.albumArt!);
-          }
+      // ✅ TRY 1: MediaStore Album Art (Most reliable for Android 15+)
+      if (song.mediaStoreId > 0) {
+        final mediaStoreUri = await _getMediaStoreAlbumArtUri(song.mediaStoreId);
+        if (mediaStoreUri != null) {
+          _albumArtCache[song.id] = mediaStoreUri.toString();
+          debugPrint('✅ Using MediaStore album art: $mediaStoreUri');
+          return mediaStoreUri;
         }
       }
 
-      debugPrint('🔄 Extracting album art for notification...');
+      // ✅ TRY 2: Extract fresh album art and save as content URI
+      debugPrint('🔄 Extracting fresh album art for notification...');
       final albumArtBytes = await AlbumArtService.getAlbumArt(
         songId: song.mediaStoreId,
         songTitle: song.title,
         artist: song.artist,
       );
 
-      debugPrint('🎨 AlbumArtService returned: ${albumArtBytes?.length ?? 0} bytes');
-      
       if (albumArtBytes != null && albumArtBytes.isNotEmpty) {
-        final tempDir = await getTemporaryDirectory();
-        final file = File('${tempDir.path}/notif_${song.mediaStoreId}.jpg');
-        await file.writeAsBytes(albumArtBytes);
+        debugPrint('🎨 Extracted ${albumArtBytes.length} bytes of album art');
         
-        final uri = Uri.file(file.path);
-        debugPrint('✅ Notification art file created: ${file.path}');
-        
-        _albumArtCache[song.id] = uri.toString();
-        return uri;
+        // ✅ Save and get content URI for Android 15+
+        final contentUri = await _saveAndGetContentUri(albumArtBytes, 'notif_${song.id}_${DateTime.now().millisecondsSinceEpoch}');
+        if (contentUri != null) {
+          _albumArtCache[song.id] = contentUri.toString();
+          debugPrint('✅ Saved album art as content URI: $contentUri');
+          return contentUri;
+        }
       }
 
-      debugPrint('⚠️ No album art found for notification');
+      // ✅ TRY 3: Generate placeholder as content URI
+      debugPrint('🔄 Generating placeholder art...');
+      final placeholderUri = await _generatePlaceholderArt(song);
+      _albumArtCache[song.id] = placeholderUri.toString();
+      
+      debugPrint('✅ Using placeholder art: $placeholderUri');
+      return placeholderUri;
+
+    } catch (e) {
+      debugPrint('❌ Error in _getNotificationArtUri: $e');
+      // Final fallback
+      return await _generatePlaceholderArt(song);
+    }
+  }
+
+  // ✅ FIXED: MediaStore URI check using MethodChannel
+  Future<Uri?> _getMediaStoreAlbumArtUri(int mediaStoreId) async {
+    try {
+      if (mediaStoreId <= 0) return null;
+      
+      debugPrint('🎵 Checking MediaStore album art for ID: $mediaStoreId');
+      
+      // ✅ Android native side se check karwao via MethodChannel
+      if (Platform.isAndroid) {
+        try {
+          final result = await const MethodChannel('i_music/media_store')
+              .invokeMethod('checkAlbumArtExists', {
+                'albumId': mediaStoreId,
+              });
+          
+          if (result == true) {
+            final uri = Uri.parse('content://media/external/audio/albumart/$mediaStoreId');
+            debugPrint('✅ MediaStore album art exists: $uri');
+            return uri;
+          }
+        } catch (e) {
+          debugPrint('⚠️ MethodChannel check failed: $e');
+        }
+      }
+      
       return null;
     } catch (e) {
-      debugPrint('❌ Error getting notification art URI: $e');
+      debugPrint('❌ Error in _getMediaStoreAlbumArtUri: $e');
       return null;
     }
   }
 
-  // ✅ SIMPLIFIED: Generate placeholder art without HSL complications
+  // ✅ IMPROVED: Content URI generation with better error handling
+  Future<Uri?> _saveAndGetContentUri(List<int> bytes, String filename) async {
+    try {
+      if (!Platform.isAndroid) {
+        // iOS/other platforms - use file URI
+        final tempDir = await getTemporaryDirectory();
+        final file = File('${tempDir.path}/$filename.jpg');
+        await file.writeAsBytes(bytes);
+        return Uri.file(file.path);
+      }
+
+      // Android - try FileProvider first
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/$filename.jpg');
+      await file.writeAsBytes(bytes);
+
+      debugPrint('📁 Temporary file created: ${file.path}');
+
+      try {
+        final Map<String, dynamic> result = await const MethodChannel('i_music/file_provider')
+            .invokeMethod('getContentUri', {
+              'filePath': file.path,
+              'authority': 'com.example.i_music.fileprovider',
+            });
+        
+        if (result['contentUri'] != null) {
+          final contentUri = Uri.parse(result['contentUri']);
+          debugPrint('✅ Content URI obtained: $contentUri');
+          return contentUri;
+        }
+      } catch (e) {
+        debugPrint('⚠️ FileProvider failed: $e');
+      }
+
+      // Fallback: Use file URI (might not work on Android 15+ but try)
+      debugPrint('🔄 Using file URI as fallback');
+      return Uri.file(file.path);
+
+    } catch (e) {
+      debugPrint('❌ Error in _saveAndGetContentUri: $e');
+      return null;
+    }
+  }
+
+  // ✅ FIXED: Placeholder art generation with proper null safety
   Future<Uri> _generatePlaceholderArt(Song song) async {
     try {
       debugPrint('🎨 Generating placeholder art for: ${song.title}');
-      
+
       const size = 512;
       final pictureRecorder = ui.PictureRecorder();
       final canvas = ui.Canvas(pictureRecorder);
-      
-      // ✅ SIMPLE COLOR: Use hash to generate a color without HSL
+
       final hash = song.title.hashCode;
-      final colorValue = (hash & 0xFFFFFF) | 0xFF000000; // Ensure opacity
+      final colorValue = (hash & 0xFFFFFF) | 0xFF000000;
       final backgroundColor = ui.Color(colorValue);
-      
-      // Draw background
+
       final backgroundPaint = ui.Paint()..color = backgroundColor;
       canvas.drawRect(ui.Rect.fromLTRB(0, 0, size.toDouble(), size.toDouble()), backgroundPaint);
-      
-      // Draw music note icon with contrasting color
-      final textColor = backgroundColor.computeLuminance() > 0.5 ? ui.Color(0xFF000000) : ui.Color(0xFFFFFFFF);
-      
       final textPainter = TextPainter(
-        text: TextSpan(
+        text: const TextSpan(
           text: '🎵',
           style: TextStyle(
             fontSize: 180,
-            color: textColor,
+            color: Colors.white, // ✅ FIXED: Use Colors.white directly
           ),
         ),
         textDirection: TextDirection.ltr,
       );
-      
+
       textPainter.layout();
       textPainter.paint(
         canvas,
@@ -413,21 +526,38 @@ class BackgroundAudioHandler extends BaseAudioHandler {
           (size - textPainter.height) / 2,
         ),
       );
-      
-      // Convert to image
+
       final picture = pictureRecorder.endRecording();
       final image = await picture.toImage(size, size);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      
+
       if (byteData != null) {
         final tempDir = await getTemporaryDirectory();
         final file = File('${tempDir.path}/placeholder_${song.id}.jpg');
         await file.writeAsBytes(byteData.buffer.asUint8List());
-        
+
         debugPrint('✅ Placeholder art generated: ${file.path}');
+        
+        // Try to get content URI for placeholder as well
+        if (Platform.isAndroid) {
+          try {
+            final Map<String, dynamic> result = await const MethodChannel('i_music/file_provider')
+                .invokeMethod('getContentUri', {
+                  'filePath': file.path,
+                  'authority': 'com.example.i_music.fileprovider',
+                });
+            
+            if (result['contentUri'] != null) {
+              return Uri.parse(result['contentUri']);
+            }
+          } catch (e) {
+            debugPrint('⚠️ FileProvider for placeholder error: $e');
+          }
+        }
+        
         return Uri.file(file.path);
       }
-      
+
       throw Exception('Failed to generate placeholder art');
     } catch (e) {
       debugPrint('❌ Error generating placeholder art: $e');
@@ -440,10 +570,10 @@ class BackgroundAudioHandler extends BaseAudioHandler {
       final current = currentSong;
       if (current != null) {
         debugPrint('🔍 DEBUG: Testing notification art for: ${current.title}');
-        
+
         final artUri = await _getNotificationArtUri(current);
         debugPrint('🔍 DEBUG: Final artUri: $artUri');
-        
+
         if (artUri != null) {
           final newMediaItem = await _songToMediaItem(current);
           mediaItem.value = newMediaItem;
@@ -501,85 +631,46 @@ class BackgroundAudioHandler extends BaseAudioHandler {
       }
     } catch (e) {
       debugPrint('❌ Error in skipToNext: $e');
-      if (_currentIndex + 1 < _currentQueue.length) {
-        await setSong(_currentQueue[_currentIndex + 1], _currentQueue);
-      }
     }
   }
 
   @override
   Future<void> skipToPrevious() async {
     try {
-      if (_player.position.inSeconds > 3) {
-        await _player.seek(Duration.zero);
-        debugPrint('🔁 Restarting current track');
-      } else if (_currentIndex > 0) {
+      if (_currentIndex > 0) {
         await _player.seekToPrevious();
         debugPrint('⏮️ Skip to previous executed');
+      } else {
+        await _player.seek(Duration.zero);
+        debugPrint('🔁 Reset to start');
       }
     } catch (e) {
       debugPrint('❌ Error in skipToPrevious: $e');
-      if (_currentIndex > 0) {
-        await setSong(_currentQueue[_currentIndex - 1], _currentQueue);
-      }
     }
   }
 
   @override
   Future<void> stop() async {
-    debugPrint('🛑 STOP CALLED - Preparing for app termination');
-    await _forceCleanup();
-    return super.stop();
-  }
-
-  @override
-  Future<void> onTaskRemoved() async {
-    debugPrint('🔴 onTaskRemoved CALLED - App being killed by system');
-    await _forceCleanup();
-    await super.onTaskRemoved();
-  }
-
-  @override
-  Future<void> setSpeed(double speed) async {
     try {
-      final clampedSpeed = speed.clamp(0.5, 2.0);
-      await _player.setSpeed(clampedSpeed);
-      debugPrint('🎛️ Speed set to $clampedSpeed');
+      await _player.stop();
+      debugPrint('⏹️ Stop command executed');
     } catch (e) {
-      debugPrint('❌ Error setting speed: $e');
+      debugPrint('❌ Error in stop: $e');
     }
   }
 
-  Future<void> setVolume(double volume) async {
-    try {
-      final clampedVolume = volume.clamp(0.0, 1.0);
-      await _player.setVolume(clampedVolume);
-      debugPrint('🔊 Volume set to $clampedVolume');
-    } catch (e) {
-      debugPrint('❌ Error setting volume: $e');
-    }
-  }
-
-  // ✅ Getters
-  List<Song> get currentQueue => List.unmodifiable(_currentQueue);
-  int get currentIndex => _currentIndex;
-  Song? get currentSong => _currentIndex < _currentQueue.length ? _currentQueue[_currentIndex] : null;
-  Duration? get duration => _player.duration;
-  Duration get position => _player.position;
-
-  // ✅ Streams
-  Stream<Duration> get positionStream => _player.positionStream;
-  Stream<Duration> get bufferedPositionStream => _player.bufferedPositionStream;
-  Stream<Duration?> get durationStream => _player.durationStream;
-  Stream<bool> get playingStream => _player.playingStream;
-  Stream<PlayerState> get playerStateStream => _player.playerStateStream;
-  Stream<ProcessingState> get processingStateStream => _player.processingStateStream;
-
+  // ✅ FIXED: Dispose method
   Future<void> dispose() async {
-    if (_isDisposed) return;
     _isDisposed = true;
-    debugPrint('🔥 DISPOSE CALLED - Final cleanup');
-    _albumArtCache.clear();
-    await _forceCleanup();
+    await _player.dispose();
+    debugPrint('🔥 BackgroundAudioHandler disposed');
+  }
+
+  // Helper getter for current song
+  Song? get currentSong {
+    if (_currentIndex < _currentQueue.length) {
+      return _currentQueue[_currentIndex];
+    }
+    return null;
   }
 }

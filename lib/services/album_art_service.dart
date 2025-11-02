@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -435,7 +434,7 @@ class AlbumArtService {
   static Future<void> debugPermissions() async {
     try {
       debugPrint('🔍 === ALBUM ART SERVICE DEBUG ===');
-      debugPrint('📱 Platform: ${defaultTargetPlatform}');
+      debugPrint('📱 Platform: $defaultTargetPlatform');
       
       final isAndroid13OrAbove = await _isAndroid13OrAbove();
       debugPrint('🔢 Android 13+: $isAndroid13OrAbove');

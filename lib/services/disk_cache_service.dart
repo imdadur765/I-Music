@@ -1,6 +1,5 @@
 // lib/services/disk_cache_service.dart
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
 
@@ -94,11 +93,11 @@ class DiskCacheService {
       int originalCount = 0;
       
       if (await thumbnailDir.exists()) {
-        thumbnailCount = (await thumbnailDir.list().toList()).where((entity) => entity is File).length;
+        thumbnailCount = (await thumbnailDir.list().toList()).whereType<File>().length;
       }
       
       if (await originalDir.exists()) {
-        originalCount = (await originalDir.list().toList()).where((entity) => entity is File).length;
+        originalCount = (await originalDir.list().toList()).whereType<File>().length;
       }
       
       return {
