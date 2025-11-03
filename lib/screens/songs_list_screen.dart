@@ -1,5 +1,4 @@
-// lib/screens/songs_list_screen.dart - OPTIMIZED WITH CACHE (CLEAN VERSION)
-import 'package:audio_service/audio_service.dart';
+// lib/screens/songs_list_screen.dart - STREAM-ONLY FIXED VERSION
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -201,25 +200,27 @@ class _SongsListScreenState extends ConsumerState<SongsListScreen> {
     );
   }
 
+  // ✅ FIXED: Using only StreamProvider approach
   Future<void> _playSong(Song song, List<Song> songs) async {
     try {
-      debugPrint('🎵 Playing: ${song.title}');
+      debugPrint('🎵 [_playSong] STARTING FRESH: ${song.title}');
       
-      ref.read(currentSongProvider.notifier).state = song;
-      ref.read(isPlayingProvider.notifier).state = true;
+      // ✅ STEP 1: Get audio handler
+      final audioHandler = ref.read(audioHandlerProvider) as BackgroundAudioHandler;
+      
+      // ✅ STEP 2: Set current playlist (only StateProvider we're using)
       ref.read(currentPlaylistProvider.notifier).state = songs;
       
-      final audioHandler = ref.read(audioHandlerProvider);
-      if (audioHandler is BackgroundAudioHandler) {
-        await audioHandler.setSong(song, songs);
-      } else {
-        await _playWithStandardHandler(audioHandler, song);
-      }
+      debugPrint('✅ [_playSong] Playlist set for fresh start');
       
-      debugPrint('✅ Now playing: ${song.title}');
+      // ✅ STEP 3: Call setSong for fresh playback
+      // Audio service will automatically update the StreamProviders
+      await audioHandler.setSong(song, songs);
+      
+      debugPrint('✅ [_playSong] COMPLETED: ${song.title} playing FRESH');
       
     } catch (e) {
-      debugPrint('❌ Error playing song: $e');
+      debugPrint('❌ [_playSong] ERROR: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -228,17 +229,6 @@ class _SongsListScreenState extends ConsumerState<SongsListScreen> {
           ),
         );
       }
-    }
-  }
-
-  Future<void> _playWithStandardHandler(AudioHandler handler, Song song) async {
-    try {
-      await handler.stop();
-      await handler.play();
-      debugPrint('✅ Playing with standard AudioHandler: ${song.title}');
-    } catch (e) {
-      debugPrint('❌ Error with standard handler: $e');
-      rethrow;
     }
   }
 }
@@ -272,8 +262,7 @@ class _OptimizedSongListItemState extends State<_OptimizedSongListItem>
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
-        // ignore: deprecated_member_use
-        color: Colors.grey[900]?.withOpacity(0.5),
+        color: const Color.fromRGBO(33, 33, 33, 0.5),
         borderRadius: BorderRadius.circular(12),
       ),
       child: ListTile(
@@ -303,7 +292,7 @@ class _OptimizedSongListItemState extends State<_OptimizedSongListItem>
         ),
         trailing: Icon(
           Icons.play_arrow,
-          color: Colors.purple.shade300,
+          color: Colors.purple[300],
         ),
         onTap: widget.onTap,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -371,12 +360,11 @@ class OptimizedAlbumArtWidget extends StatelessWidget {
           decoration: showShadow
               ? BoxDecoration(
                   borderRadius: BorderRadius.circular(borderRadius),
-                  boxShadow: [
+                  boxShadow: const [
                     BoxShadow(
-                      // ignore: deprecated_member_use
-                      color: Colors.black.withOpacity(0.3),
+                      color: Color.fromRGBO(0, 0, 0, 0.3),
                       blurRadius: 4,
-                      offset: const Offset(0, 2),
+                      offset: Offset(0, 2),
                     ),
                   ],
                 )
