@@ -58,7 +58,7 @@
             android:resizeableActivity="true"
             android:supportsPictureInPicture="false"
             android:showWhenLocked="true"
-            android:turnScreenOn="true">   <!-- ✅ FIXED: Kept only one turnScreenOn -->
+            android:turnScreenOn="true">
 
             <!-- 🚀 HIGH REFRESH RATE METADATA -->
             <meta-data
@@ -130,14 +130,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- ✅ FILE PROVIDER FOR ALBUM ART - CORRECTLY PLACED -->
         <provider
-          android:name="androidx.core.content.FileProvider"
-          android:authorities="com.example.i_music.fileprovider"
-          android:exported="false"
-          android:grantUriPermissions="true">
-         <meta-data
-            android:name="android.support.FILE_PROVIDER_PATHS"
-            android:resource="@xml/file_paths" />
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.example.i_music.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
         </provider>
 
         <!-- 🔔 NOTIFICATION CONFIGURATION - ANDROID 15+ COMPATIBLE -->

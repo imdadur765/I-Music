@@ -1,4 +1,3 @@
-// lib/services/background_audio_service.dart - COMPLETELY FIXED
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:audio_service/audio_service.dart';
@@ -18,33 +17,22 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
   bool _isInitialized = false;
   bool _isDisposed = false;
 
-  final Map<String, String> _albumArtCache = {};
-
   BackgroundAudioHandler() : _player = AudioPlayer() {
     _initializePlayer();
   }
 
-  // ✅ FIXED: Streams with correct return types
+  // Streams
   Stream<Duration> get durationStream => _player.durationStream.where((duration) => duration != null).cast<Duration>();
   Stream<Duration> get positionStream => _player.positionStream;
   Stream<Duration> get bufferedPositionStream => _player.bufferedPositionStream;
-  
-  // ✅ FIXED: Return ProcessingState instead of AudioProcessingState
   Stream<ProcessingState> get processingStateStream => _player.processingStateStream;
-  
-  // ✅ FIXED: Add playerStateStream
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;
 
-  // ✅ FIXED: Getters without @override
   Duration get position => _player.position;
   Duration? get duration => _player.duration;
-
+  
   Future<void> setVolume(double volume) async {
     await _player.setVolume(volume);
-  }
-  @override
-  Future<void> setSpeed(double speed) async {
-    await _player.setSpeed(speed);
   }
 
   Future<void> _initializePlayer() async {
@@ -66,7 +54,7 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
 
       _setupAudioListeners();
       _isInitialized = true;
-      debugPrint('✅ BackgroundAudioHandler initialized successfully');
+      debugPrint('✅ BackgroundAudioHandler initialized');
     } catch (e) {
       debugPrint('❌ Error initializing BackgroundAudioHandler: $e');
     }
@@ -85,22 +73,6 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
       if (index != null && index < _currentQueue.length) {
         _currentIndex = index;
         _updateCurrentMediaItem();
-      }
-    });
-
-    _player.durationStream.listen((duration) {
-      if (duration != null && !mediaItem.isClosed) {
-        final currentMediaItem = mediaItem.value;
-        if (currentMediaItem != null) {
-          mediaItem.value = currentMediaItem.copyWith(duration: duration);
-        }
-      }
-    });
-
-    _player.playerStateStream.listen((state) {
-      if (state.processingState == ProcessingState.idle && state.playing) {
-        debugPrint('❌ Player error - resetting to idle');
-        _updatePlaybackState(_player.playbackEvent);
       }
     });
   }
@@ -142,16 +114,11 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
 
   AudioProcessingState _mapProcessingState(ProcessingState state) {
     switch (state) {
-      case ProcessingState.idle:
-        return AudioProcessingState.idle;
-      case ProcessingState.loading:
-        return AudioProcessingState.loading;
-      case ProcessingState.buffering:
-        return AudioProcessingState.buffering;
-      case ProcessingState.ready:
-        return AudioProcessingState.ready;
-      case ProcessingState.completed:
-        return AudioProcessingState.completed;
+      case ProcessingState.idle: return AudioProcessingState.idle;
+      case ProcessingState.loading: return AudioProcessingState.loading;
+      case ProcessingState.buffering: return AudioProcessingState.buffering;
+      case ProcessingState.ready: return AudioProcessingState.ready;
+      case ProcessingState.completed: return AudioProcessingState.completed;
     }
   }
 
@@ -164,141 +131,69 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
     }
   }
 
-  void _updateCurrentMediaItem() async {
+  void _updateCurrentMediaItem() {
     if (_currentIndex < _currentQueue.length && !mediaItem.isClosed) {
-      final mediaItemValue = await _songToMediaItem(_currentQueue[_currentIndex]);
-      mediaItem.value = mediaItemValue;
+      _songToMediaItem(_currentQueue[_currentIndex]).then((mediaItemValue) {
+        mediaItem.value = mediaItemValue;
+      });
     }
   }
 
-  @override
-  Future<dynamic> customAction(String name, [dynamic extras]) async {
-    debugPrint('🎛️ Custom action received: $name');
-
-    switch (name) {
-      case 'stopFromNative':
-        debugPrint('🛑 Stop command from native received');
-        await _forceCleanup();
-        return 'stopped';
-
-      case 'dispose':
-        debugPrint('🔥 Dispose command received');
-        await dispose();
-        return 'disposed';
-
-      case 'clearAlbumArtCache':
-        debugPrint('🖼️ Clearing album art cache');
-        _albumArtCache.clear();
-        return 'cache_cleared';
-
-      case 'debugNotificationArt':
-        debugPrint('🔍 Debugging notification art');
-        await _debugNotificationArt();
-        return 'debug_completed';
-
-      default:
-        debugPrint('❌ Unknown custom action: $name');
+  // ✅ FIXED: PROPER FILEPROVIDER URI GENERATION
+  Future<Uri?> _getAlbumArtUri(File artFile, Song song) async {
+    try {
+      debugPrint('🎨 Generating secure album art URI...');
+      
+      if (!await artFile.exists()) {
+        debugPrint('❌ Album art file does not exist: ${artFile.path}');
         return null;
-    }
-  }
-
-  Future<void> _forceCleanup() async {
-    if (_isDisposed) return;
-
-    debugPrint('🧹 FORCE CLEANUP - Stopping everything');
-    try {
-      await _player.stop();
-      await _player.dispose();
-
-      _currentQueue.clear();
-      _currentIndex = 0;
-      _albumArtCache.clear();
-
-      if (!playbackState.isClosed) {
-        playbackState.add(PlaybackState(
-          controls: [],
-          systemActions: const {MediaAction.stop},
-          processingState: AudioProcessingState.idle,
-          playing: false,
-          updatePosition: Duration.zero,
-          bufferedPosition: Duration.zero,
-          speed: 1.0,
-          queueIndex: null,
-        ));
       }
 
-      debugPrint('✅ FORCE CLEANUP COMPLETED - Ready for app death');
-    } catch (e) {
-      debugPrint('❌ Force cleanup error: $e');
-    }
-  }
-
-  Future<void> setSong(Song song, List<Song> queue) async {
-    try {
-      debugPrint('🎵 Setting song: ${song.title}');
-      debugPrint('🎵 MediaStore ID: ${song.mediaStoreId}');
-
-      if (song.uri.isEmpty) throw ArgumentError('Song URI cannot be empty');
-      if (queue.isEmpty) throw ArgumentError('Queue cannot be empty');
-
-      final initialIndex = queue.indexWhere((s) => s.id == song.id);
-      if (initialIndex == -1) throw ArgumentError('Target song not found in queue');
-
-      _currentQueue..clear()..addAll(queue);
-      _currentIndex = initialIndex;
-
-      await _safeStopPlayer();
-
-      final currentMediaItem = await _songToMediaItem(song);
-      debugPrint('🎵 MediaItem artUri: ${currentMediaItem.artUri}');
-
-      if (!mediaItem.isClosed) mediaItem.value = currentMediaItem;
-
-      final audioSources = queue.map((s) => AudioSource.uri(Uri.parse(s.uri))).toList();
-      await _player.setAudioSources(audioSources, preload: true, initialIndex: initialIndex);
-
-      await _player.setVolume(1.0);
-      await _player.setSpeed(1.0);
-      await _player.play();
-
-      debugPrint('✅ Now playing: ${song.title}');
-    } catch (e) {
-      debugPrint('❌ Error setting song: $e');
-      await _executeFallbackPlayback(song);
-    }
-  }
-
-  Future<void> _safeStopPlayer() async {
-    try {
-      if (_player.processingState != ProcessingState.idle) {
-        await _player.stop();
-        await _player.seek(Duration.zero);
+      final fileName = 'album_art_${song.mediaStoreId}.jpg';
+      
+      // ✅ SOLUTION 1: Use FileProvider content URI (Recommended)
+      final contentUri = 'content://com.example.i_music.fileprovider/music_files/$fileName';
+      debugPrint('✅ Generated content URI: $contentUri');
+      
+      // Copy file to Music directory for FileProvider access
+      final externalDir = await getExternalStorageDirectory();
+      if (externalDir != null) {
+        final musicDir = Directory('${externalDir.path}/Music');
+        if (!await musicDir.exists()) {
+          await musicDir.create(recursive: true);
+        }
+        
+        final publicFile = File('${musicDir.path}/$fileName');
+        final bytes = await artFile.readAsBytes();
+        await publicFile.writeAsBytes(bytes);
+        
+        debugPrint('✅ Album art prepared for FileProvider: ${publicFile.path}');
+        return Uri.parse(contentUri);
       }
+
+      // ✅ SOLUTION 2: Fallback to cache directory with FileProvider
+      final cacheDir = await getTemporaryDirectory();
+      final cacheFile = File('${cacheDir.path}/$fileName');
+      final bytes = await artFile.readAsBytes();
+      await cacheFile.writeAsBytes(bytes);
+      
+      final cacheUri = 'content://com.example.i_music.fileprovider/cache/$fileName';
+      debugPrint('✅ Using cache URI: $cacheUri');
+      return Uri.parse(cacheUri);
+
     } catch (e) {
-      debugPrint('⚠️ Warning during player stop: $e');
+      debugPrint('❌ Error in _getAlbumArtUri: $e');
+      
+      // ✅ EMERGENCY: Use online image as last resort
+      return Uri.parse('https://raw.githubusercontent.com/flutter/website/main/src/assets/images/docs/owl.jpg');
     }
   }
 
-  Future<void> _executeFallbackPlayback(Song song) async {
-    try {
-      debugPrint('🔄 Executing fallback playback for: ${song.title}');
-      await _safeStopPlayer();
-      await _player.setAudioSource(AudioSource.uri(Uri.parse(song.uri)), preload: true);
-
-      final mediaItemValue = await _songToMediaItem(song);
-      if (!mediaItem.isClosed) mediaItem.value = mediaItemValue;
-
-      await _player.play();
-      debugPrint('✅ Fallback playback successful');
-    } catch (fallbackError) {
-      debugPrint('❌ Fallback playback failed: $fallbackError');
-    }
-  }
-
-  // ✅ FIXED: YAHAN MAJOR CHANGES KIYE HAIN - DIRECT FILE URI USE KARO
+  // ✅ FIXED: MediaItem creation with FileProvider URIs
   Future<MediaItem> _songToMediaItem(Song song) async {
     try {
-      // ✅ DIRECT ALBUM ART FETCH KARO
+      debugPrint('🎵 Creating MediaItem for: ${song.title}');
+      
       Uint8List? albumArtBytes = await AlbumArtService.getAlbumArt(
         songId: song.mediaStoreId,
         songTitle: song.title,
@@ -306,112 +201,70 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
       );
 
       Uri? artUri;
-      
+
       if (albumArtBytes != null && albumArtBytes.isNotEmpty) {
         debugPrint('🎨 Album art found: ${albumArtBytes.length} bytes');
-        
-        // ✅ DIRECT TEMP FILE BANAO AUR FILE URI USE KARO
+
+        // Save to temporary file first
         final tempDir = await getTemporaryDirectory();
-        final tempFile = File('${tempDir.path}/album_art_${song.id}_${DateTime.now().millisecondsSinceEpoch}.jpg');
+        final tempFile = File('${tempDir.path}/temp_album_art_${song.mediaStoreId}.jpg');
         await tempFile.writeAsBytes(albumArtBytes);
+
+        // Generate FileProvider URI
+        artUri = await _getAlbumArtUri(tempFile, song);
         
-        artUri = Uri.file(tempFile.path);
-        debugPrint('📁 Album art saved to: ${tempFile.path}');
-        
-        // ✅ CACHE MEIN STORE KARO
-        _albumArtCache[song.id] = tempFile.path;
+        debugPrint('✅ Final artUri for MediaItem: $artUri');
       } else {
-        debugPrint('⚠️ No album art found, using placeholder');
+        debugPrint('⚠️ No album art found, generating placeholder');
         artUri = await _generatePlaceholderArt(song);
       }
 
-      // ✅ SIMPLE EXTRAS - COMPLEX METADATA HATA DIYA
-      final extras = <String, dynamic>{
-        'uri': song.uri,
-        'album': song.album,
-        'artist': song.artist,
-        'mediaStoreId': song.mediaStoreId,
-        // ✅ ONLY NECESSARY METADATA
-        'android.media.metadata.ALBUM_ART_URI': artUri.toString(),
-      };
-
       final mediaItem = MediaItem(
-        id: song.id,
+        id: song.mediaStoreId.toString(),
         title: song.title,
         artist: song.artist,
         album: song.album ?? 'Unknown Album',
         duration: Duration(milliseconds: song.duration),
         artUri: artUri,
         genre: song.genre,
-        extras: extras,
+        displayTitle: song.title,
+        displaySubtitle: song.artist,
+        displayDescription: song.album,
+        extras: {
+          'uri': song.uri,
+          'mediaStoreId': song.mediaStoreId.toString(),
+          // Android standard metadata for OxygenOS
+          'android.media.metadata.TITLE': song.title,
+          'android.media.metadata.ARTIST': song.artist,
+          'android.media.metadata.ALBUM': song.album ?? 'Unknown Album',
+          'android.media.metadata.DURATION': song.duration,
+          if (artUri != null) 'android.media.metadata.ALBUM_ART_URI': artUri.toString(),
+          // OxygenOS specific
+          'content_type': 'audio',
+          'playback_type': 'music',
+        },
       );
 
-      debugPrint('🎵 MediaItem created with artUri: $artUri');
-      
+      debugPrint('🎵 MediaItem created successfully with artUri: $artUri');
       return mediaItem;
+      
     } catch (e) {
       debugPrint('❌ Error creating MediaItem: $e');
-      // ✅ SIMPLE FALLBACK
-      final placeholderUri = await _generatePlaceholderArt(song);
+      // Fallback without art
       return MediaItem(
-        id: song.id,
+        id: song.mediaStoreId.toString(),
         title: song.title,
         artist: song.artist,
         album: song.album ?? 'Unknown Album',
         duration: Duration(milliseconds: song.duration),
-        artUri: placeholderUri,
+        extras: {
+          'uri': song.uri,
+          'mediaStoreId': song.mediaStoreId.toString(),
+        },
       );
     }
   }
 
-  // ✅ FIXED: SIMPLIFIED NOTIFICATION ART URI
-  Future<Uri?> _getNotificationArtUri(Song song) async {
-    try {
-      debugPrint('🔔 Getting notification art for: ${song.title}');
-
-      // ✅ CHECK CACHE FIRST
-      if (_albumArtCache.containsKey(song.id)) {
-        final cachedPath = _albumArtCache[song.id];
-        if (cachedPath != null) {
-          final file = File(cachedPath);
-          if (await file.exists()) {
-            debugPrint('✅ Using cached album art: $cachedPath');
-            return Uri.file(cachedPath);
-          }
-        }
-      }
-
-      // ✅ DIRECT ALBUM ART FETCH
-      final albumArtBytes = await AlbumArtService.getAlbumArt(
-        songId: song.mediaStoreId,
-        songTitle: song.title,
-        artist: song.artist,
-      );
-
-      if (albumArtBytes != null && albumArtBytes.isNotEmpty) {
-        debugPrint('🎨 Extracted ${albumArtBytes.length} bytes of album art');
-        
-        // ✅ SAVE TO TEMP FILE
-        final tempDir = await getTemporaryDirectory();
-        final tempFile = File('${tempDir.path}/notif_${song.id}.jpg');
-        await tempFile.writeAsBytes(albumArtBytes);
-        
-        _albumArtCache[song.id] = tempFile.path;
-        debugPrint('✅ Album art saved to: ${tempFile.path}');
-        
-        return Uri.file(tempFile.path);
-      }
-
-      debugPrint('❌ No album art available');
-      return null;
-
-    } catch (e) {
-      debugPrint('❌ Error in _getNotificationArtUri: $e');
-      return null;
-    }
-  }
-
-  // ✅ FIXED: SIMPLIFIED PLACEHOLDER ART
   Future<Uri> _generatePlaceholderArt(Song song) async {
     try {
       debugPrint('🎨 Generating placeholder art for: ${song.title}');
@@ -420,15 +273,18 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
       final pictureRecorder = ui.PictureRecorder();
       final canvas = ui.Canvas(pictureRecorder);
 
-      // ✅ SIMPLE BACKGROUND COLOR
+      // Background color based on song title hash
       final hash = song.title.hashCode;
-      final colorValue = (hash & 0xFFFFFF) | 0xFF000000;
-      final backgroundColor = ui.Color(colorValue);
+      final backgroundColor = ui.Color.fromARGB(204, 
+        (hash >> 16) & 0xFF, 
+        (hash >> 8) & 0xFF, 
+        hash & 0xFF
+      );
 
       final backgroundPaint = ui.Paint()..color = backgroundColor;
       canvas.drawRect(ui.Rect.fromLTRB(0, 0, size.toDouble(), size.toDouble()), backgroundPaint);
 
-      // ✅ SIMPLE TEXT
+      // Text
       final textPainter = TextPainter(
         text: TextSpan(
           text: song.title.isNotEmpty ? song.title[0].toUpperCase() : 'M',
@@ -456,50 +312,189 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
 
       if (byteData != null) {
         final tempDir = await getTemporaryDirectory();
-        final file = File('${tempDir.path}/placeholder_${song.id}.jpg');
+        final file = File('${tempDir.path}/placeholder_${song.mediaStoreId}.jpg');
         await file.writeAsBytes(byteData.buffer.asUint8List());
 
-        debugPrint('✅ Placeholder art generated: ${file.path}');
-        return Uri.file(file.path);
+        // Generate FileProvider URI for placeholder too
+        final publicUri = await _getAlbumArtUri(file, song);
+        return publicUri ?? file.uri;
       }
 
       throw Exception('Failed to generate placeholder art');
     } catch (e) {
       debugPrint('❌ Error generating placeholder art: $e');
-      // ✅ ULTIMATE FALLBACK
-      return Uri.parse('file:///android_asset/placeholder_art.png');
+      // Emergency fallback
+      return Uri.parse('https://picsum.photos/300/300');
     }
   }
 
-  Future<void> _debugNotificationArt() async {
+  // ✅ ADDED: Volume control via custom action
+  @override
+  Future<dynamic> customAction(String name, [dynamic extras]) async {
+    debugPrint('🎛️ Custom action: $name');
+
+    switch (name) {
+      case 'setVolume':
+        final volume = extras['volume'] as double;
+        await setVolume(volume);
+        return 'volume_set';
+
+      case 'testOxygenOS':
+        debugPrint('🔧 Testing OxygenOS compatibility');
+        _testOxygenOSCompatibility();
+        return 'tested';
+
+      case 'debugMediaSession':
+        debugPrint('🔍 Debugging MediaSession');
+        _debugMediaSession();
+        return 'debugged';
+
+      case 'forceCapsuleTest':
+        debugPrint('🚀 Force testing OxygenOS capsule');
+        await _forceCapsuleTest();
+        return 'capsule_tested';
+
+      default:
+        return null;
+    }
+  }
+
+  // ✅ ADDED: Force capsule test
+  Future<void> _forceCapsuleTest() async {
     try {
-      final current = currentSong;
-      if (current != null) {
-        debugPrint('🔍 DEBUG: Testing notification art for: ${current.title}');
-
-        final artUri = await _getNotificationArtUri(current);
-        debugPrint('🔍 DEBUG: Final artUri: $artUri');
-
-        if (artUri != null) {
-          final newMediaItem = await _songToMediaItem(current);
-          mediaItem.value = newMediaItem;
-          debugPrint('✅ DEBUG: MediaItem updated with artUri');
-        } else {
-          debugPrint('❌ DEBUG: No artUri available');
+      if (_currentIndex < _currentQueue.length) {
+        final song = _currentQueue[_currentIndex];
+        debugPrint('🎯 FORCE CAPSULE TEST - Song: ${song.title}');
+        
+        // Recreate MediaItem with force update
+        final updatedMediaItem = await _songToMediaItem(song);
+        if (!mediaItem.isClosed) {
+          mediaItem.value = updatedMediaItem;
         }
-      } else {
-        debugPrint('❌ DEBUG: No current song playing');
+        
+        // Force playback state update
+        _updatePlaybackState(_player.playbackEvent);
+        
+        // Double update for OxygenOS
+        await Future.delayed(Duration(milliseconds: 100));
+        _updatePlaybackState(_player.playbackEvent);
+        
+        debugPrint('✅ Force capsule test completed - Check now!');
       }
     } catch (e) {
-      debugPrint('❌ DEBUG Error: $e');
+      debugPrint('❌ Force capsule test failed: $e');
     }
   }
 
+  void _testOxygenOSCompatibility() {
+    try {
+      debugPrint('🎯 Testing OxygenOS Capsule Compatibility...');
+      
+      if (_currentIndex < _currentQueue.length) {
+        final song = _currentQueue[_currentIndex];
+        debugPrint('🎵 Current Song: ${song.title}');
+        debugPrint('🎵 MediaStore ID: ${song.mediaStoreId}');
+        debugPrint('🎵 Player State: ${_player.playing ? "Playing" : "Paused"}');
+        debugPrint('🎵 Art URI: ${mediaItem.value?.artUri}');
+        
+        // Force update everything
+        _updateCurrentMediaItem();
+        _updatePlaybackState(_player.playbackEvent);
+        
+        debugPrint('✅ OxygenOS test completed - Check capsule now!');
+      } else {
+        debugPrint('❌ No song currently playing for OxygenOS test');
+      }
+    } catch (e) {
+      debugPrint('❌ OxygenOS test failed: $e');
+    }
+  }
+
+  // ✅ ADDED: testMediaSession method for compatibility
+  void testMediaSession() {
+    _testOxygenOSCompatibility();
+  }
+
+  void _debugMediaSession() {
+    try {
+      debugPrint('🔍 MEDIA SESSION DEBUG INFO:');
+      debugPrint('🎵 MediaItem: ${mediaItem.value}');
+      debugPrint('🎵 PlaybackState: ${playbackState.value}');
+      debugPrint('🎵 Player Playing: ${_player.playing}');
+      debugPrint('🎵 Current Index: $_currentIndex');
+      debugPrint('🎵 Queue Length: ${_currentQueue.length}');
+      
+      if (_currentIndex < _currentQueue.length) {
+        final song = _currentQueue[_currentIndex];
+        debugPrint('🎵 Current Song: ${song.title}');
+        debugPrint('🎵 Current Song Art URI: ${mediaItem.value?.artUri}');
+      }
+    } catch (e) {
+      debugPrint('❌ MediaSession debug error: $e');
+    }
+  }
+
+  Future<void> setSong(Song song, List<Song> queue) async {
+    try {
+      debugPrint('🎵 Setting song: ${song.title}');
+
+      if (song.uri.isEmpty) throw ArgumentError('Song URI cannot be empty');
+      if (queue.isEmpty) throw ArgumentError('Queue cannot be empty');
+
+      final initialIndex = queue.indexWhere((s) => s.id == song.id);
+      if (initialIndex == -1) throw ArgumentError('Target song not found in queue');
+
+      _currentQueue..clear()..addAll(queue);
+      _currentIndex = initialIndex;
+
+      await _safeStopPlayer();
+
+      // Set MediaItem first
+      final currentMediaItem = await _songToMediaItem(song);
+      if (!mediaItem.isClosed) {
+        mediaItem.value = currentMediaItem;
+      }
+      
+      // Then set audio source
+      final audioSources = queue.map((s) => AudioSource.uri(Uri.parse(s.uri))).toList();
+      await _player.setAudioSources(audioSources, preload: true, initialIndex: initialIndex);
+
+      await _player.setVolume(1.0);
+      await _player.setSpeed(1.0);
+      await _player.play();
+
+      debugPrint('✅ Now playing: ${song.title}');
+      
+      // Force update for OxygenOS
+      _updatePlaybackState(_player.playbackEvent);
+      
+      // Double update to ensure state propagation
+      await Future.delayed(Duration(milliseconds: 500));
+      _updatePlaybackState(_player.playbackEvent);
+      
+    } catch (e) {
+      debugPrint('❌ Error setting song: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _safeStopPlayer() async {
+    try {
+      if (_player.processingState != ProcessingState.idle) {
+        await _player.stop();
+        await _player.seek(Duration.zero);
+      }
+    } catch (e) {
+      debugPrint('⚠️ Warning during player stop: $e');
+    }
+  }
+
+  // Basic controls
   @override
   Future<void> play() async {
     try {
       await _player.play();
-      debugPrint('▶️ Play command executed');
+      _updatePlaybackState(_player.playbackEvent);
     } catch (e) {
       debugPrint('❌ Error in play: $e');
     }
@@ -509,7 +504,7 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> pause() async {
     try {
       await _player.pause();
-      debugPrint('⏸️ Pause command executed');
+      _updatePlaybackState(_player.playbackEvent);
     } catch (e) {
       debugPrint('❌ Error in pause: $e');
     }
@@ -519,7 +514,7 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> seek(Duration position) async {
     try {
       await _player.seek(position);
-      debugPrint('🔍 Seek to $position executed');
+      _updatePlaybackState(_player.playbackEvent);
     } catch (e) {
       debugPrint('❌ Error in seek: $e');
     }
@@ -530,10 +525,9 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
     try {
       if (_currentIndex < _currentQueue.length - 1) {
         await _player.seekToNext();
-        debugPrint('⏭️ Skip to next executed');
+        _updatePlaybackState(_player.playbackEvent);
       } else {
         await stop();
-        debugPrint('⏹️ End of queue - stopping');
       }
     } catch (e) {
       debugPrint('❌ Error in skipToNext: $e');
@@ -545,10 +539,10 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
     try {
       if (_currentIndex > 0) {
         await _player.seekToPrevious();
-        debugPrint('⏮️ Skip to previous executed');
+        _updatePlaybackState(_player.playbackEvent);
       } else {
         await _player.seek(Duration.zero);
-        debugPrint('🔁 Reset to start');
+        _updatePlaybackState(_player.playbackEvent);
       }
     } catch (e) {
       debugPrint('❌ Error in skipToPrevious: $e');
@@ -559,20 +553,18 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> stop() async {
     try {
       await _player.stop();
-      debugPrint('⏹️ Stop command executed');
+      _updatePlaybackState(_player.playbackEvent);
     } catch (e) {
       debugPrint('❌ Error in stop: $e');
     }
   }
 
-  // ✅ FIXED: Dispose method
   Future<void> dispose() async {
     _isDisposed = true;
     await _player.dispose();
     debugPrint('🔥 BackgroundAudioHandler disposed');
   }
 
-  // Helper getter for current song
   Song? get currentSong {
     if (_currentIndex < _currentQueue.length) {
       return _currentQueue[_currentIndex];

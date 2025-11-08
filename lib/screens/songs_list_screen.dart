@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:i_music/providers/app_providers.dart';
 import 'package:i_music/models/song_model.dart';
 import 'package:i_music/services/background_audio_service.dart';
-import 'package:i_music/screens/settings_page.dart';
 import 'package:i_music/services/album_art_service.dart';
 
 // MethodChannel for native communication
@@ -90,15 +89,7 @@ class _SongsListScreenState extends ConsumerState<SongsListScreen> {
           backgroundColor: Colors.black,
           elevation: 0,
           actions: [
-            IconButton(
-              icon: const Icon(Icons.settings, color: Colors.white),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SettingsPage()),
-                );
-              },
-            ),
+            
           ],
         ),
         body: songsAsync.when(
