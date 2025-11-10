@@ -18,56 +18,45 @@ import 'models/playlist_model.dart';
 import 'services/background_audio_service.dart';
 import 'services/album_art_service.dart';
 
-// ✅ FIXED: Use AudioHandler instead of BackgroundAudioHandler
+// ✅ Global audio handler
 late AudioHandler globalAudioHandler;
 const MethodChannel _nativeChannel = MethodChannel('i_music/media_store');
 bool _hasStoragePermission = false;
+bool _isFromRecentClose = false; // ✅ Track recent close
+Timer? _recentCloseTimer; // ✅ Timer for recent close detection
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await requestInitialPermissions();
-
-  // ✅ FIXED: Proper app lifecycle setup
-  _setupAppLifecycleListeners();
-
-  // ✅ Initialize disk cache
+  
   try {
-    debugPrint('💾 Initializing disk cache...');
+    // Step 1: Request initial permissions
+    await requestInitialPermissions();
+    
+    // Step 2: Initialize Hive
+    await _initializeHive();
+    
+    // Step 3: Initialize audio service
+    globalAudioHandler = await _initializeAudioService();
+    
+    // Step 4: Setup app lifecycle listeners
+    _setupAppLifecycleListeners();
+    
+    // Step 5: Initialize disk cache
     await AlbumArtService.init();
-    debugPrint('✅ Disk cache initialized successfully');
-  } catch (e) {
-    debugPrint('❌ Disk cache initialization failed: $e');
-  }
+    
+    // Step 6: Check storage permission for album art
+    await _checkAndRequestStoragePermission();
 
-  // Lock orientation
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
-
-  try {
-    debugPrint('🚀 Starting i_music app initialization...');
+    // Lock orientation
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
 
     // Setup native method handler
     _setupNativeMethodHandler();
-
-    // Cleanup any previous audio service
-    await _effectiveServiceCleanup();
-
-    // Initialize Hive
-    await _initializeHive();
-
-    // Request permissions
-    await _requestAppPermissions();
-
-    // Check storage permission for album art
-    await _checkAndRequestStoragePermission();
-
-    // ✅ FIXED: Initialize audio service
-    globalAudioHandler = await _initializeAudioService();
-
+    
     debugPrint('🎵 i_music app started successfully!');
-    debugPrint('🎵 MediaSession should be active for OxygenOS 15 capsule');
 
     runApp(const ProviderScope(child: IMusicApp()));
   } catch (error, stack) {
@@ -77,60 +66,145 @@ Future<void> main() async {
   }
 }
 
-// ✅ FIXED: Proper app lifecycle listener
+// ✅ FIXED: App lifecycle listeners with PROPER recent close detection
 void _setupAppLifecycleListeners() {
   WidgetsBinding.instance.addObserver(
     LifecycleEventHandler(
-      detachedCallBack: () async {
-        debugPrint('📱 App being detached - cleaning up');
-        await _stopAudioServiceCompletely();
+      audioHandler: globalAudioHandler,
+      detachedCallback: () async {
+        debugPrint('📱 App being detached - checking close type');
+        try {
+          // ✅ Cancel timer first
+          _recentCloseTimer?.cancel();
+          
+          if (_isFromRecentClose) {
+            debugPrint('🚫 Recent close detected - clearing everything');
+            await _clearForRecentClose(globalAudioHandler);
+          } else {
+            debugPrint('💾 Normal close - saving session');
+            await _saveAudioSession(globalAudioHandler);
+          }
+        } catch (e) {
+          debugPrint('⚠️ App detached handling error: $e');
+        } finally {
+          _isFromRecentClose = false; // Reset flag
+        }
       },
       resumeCallBack: () async {
         debugPrint('📱 App coming to foreground');
-        // ✅ MediaSession refresh when app resumes
-        _refreshMediaSession();
+        // ✅ Cancel any pending recent close detection
+        _recentCloseTimer?.cancel();
+        _isFromRecentClose = false;
+        
+        // ✅ DELAYED: Wait for session restoration to complete
+        await Future.delayed(const Duration(milliseconds: 1000));
+        _checkSessionRestoration();
+      },
+      pauseCallBack: () async {
+        debugPrint('📱 App going to background');
+        // ✅ Start detecting if this is a recent close
+        _startRecentCloseDetection();
       },
     ),
   );
-  debugPrint('✅ App lifecycle listeners setup completed');
 }
 
-// ✅ FIXED: MediaSession refresh function - removed await from void function
+// ✅ IMPROVED: Recent close detection with timer
+void _startRecentCloseDetection() {
+  // Cancel any existing timer
+  _recentCloseTimer?.cancel();
+  
+  // Set a timer to detect if this becomes a recent close
+  _recentCloseTimer = Timer(const Duration(milliseconds: 500), () {
+    _isFromRecentClose = true;
+    debugPrint('🔍 Recent close detection active');
+  });
+}
+
+// ✅ FIXED: Clear everything for recent close
+Future<void> _clearForRecentClose(AudioHandler audioHandler) async {
+  try {
+    if (audioHandler is BackgroundAudioHandler) {
+      await audioHandler.customAction('clearForRecentClose');
+      debugPrint('✅ Everything cleared for recent close');
+    }
+  } catch (e) {
+    debugPrint('❌ Error clearing for recent close: $e');
+  }
+}
+
+void _checkSessionRestoration() {
+  try {
+    final audioHandler = getAudioHandler();
+    if (audioHandler is BackgroundAudioHandler) {
+      if (audioHandler.isRestoringSession) {
+        debugPrint('🔄 Session restoration in progress...');
+      } else {
+        debugPrint('✅ Session restoration completed');
+      }
+    }
+  } catch (e) {
+    debugPrint('⚠️ Session check error: $e');
+  }
+}
+
+// ✅ FIXED: _saveAudioSession function
+Future<void> _saveAudioSession(AudioHandler audioHandler) async {
+  try {
+    if (audioHandler is BackgroundAudioHandler) {
+      await audioHandler.customAction('forceSaveSession');
+      debugPrint('💾 Session saved');
+    }
+  } catch (e) {
+    debugPrint('⚠️ Session save error: $e');
+  }
+}
+
+// ✅ Fixed: MediaSession refresh function
 void _refreshMediaSession() {
   try {
     debugPrint('🔄 Refreshing MediaSession state...');
-    // This will trigger PlaybackState update which refreshes MediaSession
-    final audioHandler = getAudioHandler();
+    final audioHandler = globalAudioHandler;
     if (audioHandler is BackgroundAudioHandler) {
-      // Force a playback state update
       audioHandler.playbackState.add(audioHandler.playbackState.value);
+      debugPrint('✅ MediaSession refreshed');
     }
   } catch (e) {
     debugPrint('⚠️ MediaSession refresh error: $e');
   }
 }
 
-// ✅ LifecycleEventHandler class
+// ✅ UPDATED: LifecycleEventHandler class with ALL callbacks
 class LifecycleEventHandler extends WidgetsBindingObserver {
   final AsyncCallback? resumeCallBack;
-  final AsyncCallback? detachedCallBack;
+  final AsyncCallback? detachedCallback;
+  final AsyncCallback? pauseCallBack;
+  final AudioHandler audioHandler;
 
-  LifecycleEventHandler({this.resumeCallBack, this.detachedCallBack});
+  LifecycleEventHandler({
+    this.resumeCallBack, 
+    this.detachedCallback,
+    this.pauseCallBack,
+    required this.audioHandler,
+  });
 
   @override
   Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
     switch (state) {
       case AppLifecycleState.resumed:
+        debugPrint('📱 App resumed');
         if (resumeCallBack != null) await resumeCallBack!();
         break;
       case AppLifecycleState.detached:
-        if (detachedCallBack != null) await detachedCallBack!();
+        debugPrint('📱 App detached');
+        if (detachedCallback != null) await detachedCallback!();
         break;
       case AppLifecycleState.inactive:
-        debugPrint('📱 App becoming inactive');
+        debugPrint('📱 App inactive');
         break;
       case AppLifecycleState.paused:
         debugPrint('📱 App paused');
+        if (pauseCallBack != null) await pauseCallBack!();
         break;
       case AppLifecycleState.hidden:
         debugPrint('📱 App hidden');
@@ -139,7 +213,7 @@ class LifecycleEventHandler extends WidgetsBindingObserver {
   }
 }
 
-// ✅ FIXED: Native method handler
+// ✅ Fixed: Native method handler
 void _setupNativeMethodHandler() {
   _nativeChannel.setMethodCallHandler((call) async {
     debugPrint('📱 Native method called: ${call.method}');
@@ -175,34 +249,27 @@ void _setupNativeMethodHandler() {
   });
 }
 
-// ✅ FIXED: Safe audio handler access
+// ✅ Fixed: Safe audio handler access
 AudioHandler getAudioHandler() {
   return globalAudioHandler;
 }
 
-// ✅ FIXED: Audio service running check
+// ✅ Fixed: Audio service running check
 Future<bool> isAudioServiceRunning() async {
   try {
-    return true;
+    // ignore: deprecated_member_use
+    return AudioService.running;
   } catch (e) {
     return false;
   }
 }
 
-// ✅ FIXED: Complete audio service shutdown
+// ✅ Fixed: Complete audio service shutdown
 Future<void> _stopAudioServiceCompletely() async {
   debugPrint('🔴 Starting complete audio service shutdown...');
 
   try {
-    // Step 1: Try to stop via custom action
-    try {
-      await globalAudioHandler.customAction('stopFromNative');
-      debugPrint('✅ Native stop command sent to audio handler');
-    } catch (e) {
-      debugPrint('⚠️ Native stop command error: $e');
-    }
-
-    // Step 2: Stop audio playback using AudioHandler
+    // Step 1: Stop audio playback using AudioHandler
     try {
       await globalAudioHandler.stop();
       debugPrint('✅ AudioHandler.stop() completed');
@@ -210,7 +277,7 @@ Future<void> _stopAudioServiceCompletely() async {
       debugPrint('⚠️ AudioHandler.stop() error: $e');
     }
 
-    // Step 3: Cleanup any stray players
+    // Step 2: Cleanup any stray players
     try {
       final tempPlayer = AudioPlayer();
       await tempPlayer.stop();
@@ -226,31 +293,7 @@ Future<void> _stopAudioServiceCompletely() async {
   }
 }
 
-// ✅ FIXED: Effective service cleanup
-Future<void> _effectiveServiceCleanup() async {
-  debugPrint('🔄 Starting effective service cleanup...');
-
-  try {
-    await globalAudioHandler.stop();
-    debugPrint('✅ AudioHandler stopped');
-  } catch (e) {
-    debugPrint('✅ AudioHandler already stopped or not running');
-  }
-
-  // Cleanup any audio players
-  try {
-    final tempPlayer = AudioPlayer();
-    await tempPlayer.stop();
-    await tempPlayer.dispose();
-    debugPrint('✅ Audio players cleaned up');
-  } catch (e) {
-    debugPrint('⚠️ Audio player cleanup warning: $e');
-  }
-
-  await Future.delayed(const Duration(milliseconds: 500));
-  debugPrint('✅ Service cleanup completed');
-}
-
+// ✅ Fixed: Hive initialization
 Future<void> _initializeHive() async {
   try {
     await Hive.initFlutter();
@@ -284,10 +327,10 @@ Future<void> _openBoxWithRecovery<T>(String boxName) async {
   }
 }
 
-// ✅ Android 15+ permission handling
+// ✅ Fixed: Android permission handling
 Future<void> _requestAppPermissions() async {
   try {
-    debugPrint('🔐 Requesting app permissions for Android 15+...');
+    debugPrint('🔐 Requesting app permissions...');
 
     final isAndroid13OrAbove = await _isAndroid13OrAbove();
     debugPrint('📱 Android Version: ${isAndroid13OrAbove ? '13+' : '12 or below'}');
@@ -336,7 +379,7 @@ Future<void> _requestAppPermissions() async {
   }
 }
 
-// ✅ Storage permission check for album art
+// ✅ Fixed: Storage permission check for album art
 Future<void> _checkAndRequestStoragePermission() async {
   try {
     debugPrint('🎵 Checking storage permission for album art...');
@@ -352,7 +395,7 @@ Future<void> _checkAndRequestStoragePermission() async {
       return;
     }
 
-    if (status.isDenied) {
+    if (status.isDenied || status.isLimited) {
       final result = await storagePermission.request();
       _hasStoragePermission = result.isGranted;
 
@@ -362,7 +405,7 @@ Future<void> _checkAndRequestStoragePermission() async {
         debugPrint('❌ Storage permission denied - Album art will not work');
       }
     } else if (status.isPermanentlyDenied) {
-      debugPrint('🚫 Storage permission permanently denied');
+      debugPrint('🚫 Storage permission permanently denied - User needs to enable manually');
       _hasStoragePermission = false;
     }
   } catch (e) {
@@ -371,7 +414,7 @@ Future<void> _checkAndRequestStoragePermission() async {
   }
 }
 
-// ✅ Android version check
+// ✅ Fixed: Android version check
 Future<bool> _isAndroid13OrAbove() async {
   try {
     if (defaultTargetPlatform == TargetPlatform.android) {
@@ -387,37 +430,54 @@ Future<bool> _isAndroid13OrAbove() async {
     return true;
   }
 }
+
+// ✅ Fixed: Initial permissions
 Future<void> requestInitialPermissions() async {
-  if (!Platform.isAndroid) return; // Just safety
+  if (!Platform.isAndroid) return;
 
-  print('🔄 Requesting necessary permissions...');
+  if (kDebugMode) {
+    print('🔄 Requesting necessary permissions...');
+  }
 
-  // 1️⃣ Audio Permission
+  // Audio Permission
   final audioStatus = await Permission.audio.request();
-
   if (audioStatus.isGranted) {
-    print('✅ Audio permission granted');
+    if (kDebugMode) {
+      print('✅ Audio permission granted');
+    }
   } else {
-    print('❌ Audio permission denied');
-  }
+    if (kDebugMode) {
+      print('❌ Audio permission denied');
+    }
+  } 
 
-  // 2️⃣ Notification Permission
+  // Notification Permission
   final notificationStatus = await Permission.notification.request();
-
   if (notificationStatus.isGranted) {
-    print('✅ Notification permission granted');
+    if (kDebugMode) {
+      print('✅ Notification permission granted');
+    }
   } else {
-    print('❌ Notification permission denied');
+    if (kDebugMode) {
+      print('❌ Notification permission denied');
+    }
   }
 
-  // ✅ Summary
+  // Request app-specific permissions
+  await _requestAppPermissions();
+
   if (audioStatus.isGranted && notificationStatus.isGranted) {
-    print('🎉 All essential permissions granted!');
+    if (kDebugMode) {
+      print('🎉 All essential permissions granted!');
+    }
   } else {
-    print('⚠️ Some permissions were denied');
+    if (kDebugMode) {
+      print('⚠️ Some permissions were denied');
+    }
   }
 }
-// ✅ FIXED: Audio Service initialization for Audio Service 0.18.18
+
+// ✅ Fixed: Audio Service initialization
 Future<AudioHandler> _initializeAudioService() async {
   debugPrint('🔊 Starting Audio Service initialization...');
 
@@ -428,7 +488,7 @@ Future<AudioHandler> _initializeAudioService() async {
         androidNotificationChannelId: 'com.imusic.channel.audio',
         androidNotificationChannelName: 'i_music Player',
         androidNotificationChannelDescription: 'Audio playback controls',
-        androidNotificationOngoing: true, // ✅ CHANGED: Keep foreground for better MediaSession
+        androidNotificationOngoing: true,
         androidShowNotificationBadge: true,
         preloadArtwork: true,
         androidResumeOnClick: true,
@@ -442,18 +502,19 @@ Future<AudioHandler> _initializeAudioService() async {
   } catch (e, st) {
     debugPrint('❌ Audio Service init failed: $e');
     debugPrint('Stack: $st');
+    
+    // Fallback: create background handler directly
     return BackgroundAudioHandler();
   }
 }
 
-// ✅ FIXED: MediaSession test function - removed activeMediaItemId reference
+// ✅ Fixed: MediaSession test function
 Future<void> testMediaSession() async {
   try {
     debugPrint('🧪 Testing MediaSession functionality...');
     
     final audioHandler = getAudioHandler();
     
-    // Check if we can access mediaItem and playbackState
     final mediaItem = audioHandler.mediaItem.value;
     final playbackState = audioHandler.playbackState.value;
     
@@ -461,7 +522,10 @@ Future<void> testMediaSession() async {
     debugPrint('🎵 MediaItem ID: ${mediaItem?.id}');
     debugPrint('🎵 Playback State: ${playbackState.playing}');
     debugPrint('🎵 Processing State: ${playbackState.processingState}');
-    // ✅ REMOVED: activeMediaItemId - not available in audio_service 0.18.18
+    
+    if (audioHandler is BackgroundAudioHandler) {
+      audioHandler.testMediaSession();
+    }
     
     debugPrint('✅ MediaSession test completed');
   } catch (e) {
@@ -469,14 +533,19 @@ Future<void> testMediaSession() async {
   }
 }
 
-
+// ✅ Manual permission request
 Future<void> requestStoragePermission() async {
   if (await Permission.storage.request().isGranted) {
-    print('✅ Storage permission granted');
+    if (kDebugMode) {
+      print('✅ Storage permission granted');
+    }
   } else {
-    print('❌ Storage permission denied');
+    if (kDebugMode) {
+      print('❌ Storage permission denied');
+    }
   }
 }
+
 // ✅ Manual permission request
 Future<void> requestPermissionsManually() async {
   try {
@@ -490,6 +559,7 @@ Future<void> requestPermissionsManually() async {
 // ✅ Getter for storage permission
 bool get hasStoragePermission => _hasStoragePermission;
 
+// ✅ Fallback app
 void _runFallbackApp() {
   runApp(
     const MaterialApp(

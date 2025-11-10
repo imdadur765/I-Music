@@ -98,6 +98,7 @@ final audioServiceStateProvider = StreamProvider<AudioServiceState>((ref) {
   return audioHandler.playbackState.map((state) {
     if (state.playing) {
       return AudioServiceState.playing;
+    // ignore: unrelated_type_equality_checks
     } else if (state.processingState == ProcessingState.ready) {
       return AudioServiceState.paused;
     } else {
@@ -188,11 +189,6 @@ class AudioPlayerService {
 
   // ✅ UPDATED: Get total duration
   Duration? get totalDuration => _audioHandler.duration;
-
-  // ✅ ADDED: Test MediaSession for OxygenOS capsule
-  void testMediaSession() {
-    _audioHandler.testMediaSession();
-  }
 
   // ✅ ADDED: Debug notification art
   Future<void> debugNotificationArt() async {

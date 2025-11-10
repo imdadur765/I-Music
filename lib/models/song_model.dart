@@ -73,7 +73,35 @@ class Song extends HiveObject {
   })  : lastPlayed = lastPlayed ?? DateTime.now(),
         dateAdded = dateAdded ?? DateTime.now();
 
-  // ✅ IMPROVED: filePath getter
+  // ✅ FIXED: toJson method
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'artist': artist,
+      'album': album,
+      'duration': duration,
+      'uri': uri,
+      'mediaStoreId': mediaStoreId,
+      'genre': genre,
+    };
+  }
+
+  // ✅ FIXED: fromJson factory
+  factory Song.fromJson(Map<String, dynamic> json) {
+    return Song(
+      id: json['id'],
+      title: json['title'],
+      artist: json['artist'],
+      album: json['album'],
+      duration: json['duration'],
+      uri: json['uri'],
+      mediaStoreId: json['mediaStoreId'],
+      genre: json['genre'],
+    );
+  }
+
+  // ✅ FIXED: IMPROVED filePath getter - NOW INSIDE CLASS
   String? get filePath {
     try {
       if (uri.startsWith('file://')) {
@@ -91,6 +119,7 @@ class Song extends HiveObject {
     }
   }
 
+  // ✅ FIXED: formattedDuration getter - NOW INSIDE CLASS
   String get formattedDuration {
     final duration = Duration(milliseconds: this.duration);
     final minutes = duration.inMinutes;
@@ -98,12 +127,63 @@ class Song extends HiveObject {
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
+  // ✅ FIXED: isValidForPlayback getter - NOW INSIDE CLASS
   bool get isValidForPlayback {
     return uri.isNotEmpty && duration > 0;
   }
 
+  // ✅ FIXED: toString method - NOW INSIDE CLASS
   @override
   String toString() => 'Song($title - $artist | $formattedDuration | MediaStoreID: $mediaStoreId)';
 
-  // ... (rest of your Song model remains same)
+  // ✅ ADD: CopyWith method for easy updates
+  Song copyWith({
+    String? id,
+    String? uri,
+    String? title,
+    String? artist,
+    String? album,
+    int? duration,
+    String? albumArt,
+    String? genre,
+    int? trackNumber,
+    int? year,
+    String? composer,
+    int? playCount,
+    DateTime? lastPlayed,
+    DateTime? dateAdded,
+    bool? isFavorite,
+    int? mediaStoreId,
+  }) {
+    return Song(
+      id: id ?? this.id,
+      uri: uri ?? this.uri,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
+      album: album ?? this.album,
+      duration: duration ?? this.duration,
+      albumArt: albumArt ?? this.albumArt,
+      genre: genre ?? this.genre,
+      trackNumber: trackNumber ?? this.trackNumber,
+      year: year ?? this.year,
+      composer: composer ?? this.composer,
+      playCount: playCount ?? this.playCount,
+      lastPlayed: lastPlayed ?? this.lastPlayed,
+      dateAdded: dateAdded ?? this.dateAdded,
+      isFavorite: isFavorite ?? this.isFavorite,
+      mediaStoreId: mediaStoreId ?? this.mediaStoreId,
+    );
+  }
+
+  // ✅ ADD: Equals method for comparison
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Song &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          uri == other.uri;
+
+  @override
+  int get hashCode => id.hashCode ^ uri.hashCode;
 }

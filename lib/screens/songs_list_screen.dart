@@ -1,4 +1,4 @@
-// lib/screens/songs_list_screen.dart - STREAM-ONLY FIXED VERSION
+// lib/screens/songs_list_screen.dart - WITH SESSION RESTORATION DETECTION
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +6,7 @@ import 'package:i_music/providers/app_providers.dart';
 import 'package:i_music/models/song_model.dart';
 import 'package:i_music/services/background_audio_service.dart';
 import 'package:i_music/services/album_art_service.dart';
+import 'package:i_music/services/session_manager.dart'; // ✅ ADD THIS IMPORT
 
 // MethodChannel for native communication
 const MethodChannel _nativeChannel = MethodChannel('i_music/media_store');
@@ -20,11 +21,17 @@ class SongsListScreen extends ConsumerStatefulWidget {
 class _SongsListScreenState extends ConsumerState<SongsListScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _isPreloading = false;
+  bool _hasCheckedSession = false; // ✅ ADD THIS
 
   @override
   void initState() {
     super.initState();
     _setupScrollListener();
+    
+    // ✅ ADD SESSION CHECK
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkForRestoredSession();
+    });
   }
 
   @override
@@ -35,6 +42,51 @@ class _SongsListScreenState extends ConsumerState<SongsListScreen> {
 
   void _setupScrollListener() {
     // Future enhancement for smart loading
+  }
+
+  // ✅ ADD SESSION RESTORATION CHECK
+  void _checkForRestoredSession() async {
+    if (_hasCheckedSession) return;
+    
+    try {
+      _hasCheckedSession = true;
+      debugPrint('🎵 Checking for restored session...');
+      
+      final audioHandler = ref.read(audioHandlerProvider) as BackgroundAudioHandler;
+      
+      // Wait a bit for restoration to complete
+      await Future.delayed(const Duration(milliseconds: 1500));
+      
+      final currentSong = audioHandler.currentSong;
+      final isRestoring = audioHandler.isRestoringSession;
+      
+      debugPrint('🎵 Session Check - Current Song: ${currentSong?.title}');
+      debugPrint('🎵 Session Check - Is Restoring: $isRestoring');
+      debugPrint('🎵 Session Check - Queue Length: ${audioHandler.currentQueue.length}');
+      
+      // If session was restored and we have a current song
+      if (currentSong != null && !isRestoring && mounted) {
+        debugPrint('✅ RESTORED SESSION DETECTED: ${currentSong.title}');
+        
+        // Show restoration message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Resuming: ${currentSong.title}'),
+            backgroundColor: Colors.purple,
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        
+        // Force UI refresh
+        setState(() {});
+      } else {
+        debugPrint('📭 No restored session found');
+      }
+      
+    } catch (e) {
+      debugPrint('❌ Session check error: $e');
+    }
   }
 
   void _preloadThumbnails(List<Song> songs) {
@@ -61,6 +113,9 @@ class _SongsListScreenState extends ConsumerState<SongsListScreen> {
   @override
   Widget build(BuildContext context) {
     final songsAsync = ref.watch(songsProvider);
+    
+    // ✅ INITIALIZE SESSION MANAGER
+    ref.watch(sessionManagerProvider);
 
     songsAsync.whenData((songs) {
       if (songs.isNotEmpty && !_isPreloading) {
@@ -88,7 +143,7 @@ class _SongsListScreenState extends ConsumerState<SongsListScreen> {
           title: const Text('I Music', style: TextStyle(color: Colors.white)),
           backgroundColor: Colors.black,
           elevation: 0,
-          actions: [
+          actions: const [
             
           ],
         ),

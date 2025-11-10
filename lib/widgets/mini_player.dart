@@ -28,6 +28,7 @@ class MiniPlayer extends ConsumerWidget {
             border: Border(top: BorderSide(color: Colors.grey.shade800)),
             boxShadow: [
               BoxShadow(
+                // ignore: deprecated_member_use
                 color: Colors.black.withOpacity(0.3),
                 blurRadius: 8,
                 offset: const Offset(0, -2),
