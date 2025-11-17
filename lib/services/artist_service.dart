@@ -1,9 +1,17 @@
 import '../models/artist_model.dart';
+import '../models/song_model.dart' as song_model;
 import 'spotify_service.dart';
 
 class ArtistService {
-  final SpotifyService _spotifyService = SpotifyService();
-  bool _useSpotify = true;
+  final bool _useSpotify = true;
+
+  // Helper function to format duration from milliseconds to "mm:ss"
+  String _formatDuration(int milliseconds) {
+    final duration = Duration(milliseconds: milliseconds);
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds.remainder(60);
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
 
   Future<List<Artist>> getArtists({String searchQuery = ''}) async {
     try {
@@ -12,40 +20,32 @@ class ArtistService {
       }
 
       if (searchQuery.isNotEmpty) {
-        // Search artists from Spotify
-        final artists = await _spotifyService.searchArtists(searchQuery);
+        final artists = await SpotifyService.searchArtists(searchQuery);
         if (artists.isNotEmpty) {
-          print('✅ Found ${artists.length} artists from Spotify');
           return artists;
         }
       } else {
-        // Get popular artists (search for popular terms)
         return await _getPopularArtists();
       }
 
-      // Fallback to demo data if no results
       return _getDemoArtists(searchQuery);
 
     } catch (e) {
-      print('❌ Spotify API failed, using demo data: $e');
       return _getDemoArtists(searchQuery);
     }
   }
 
   Future<List<Artist>> _getPopularArtists() async {
     try {
-      // Search for popular artists
-      final popularArtists = await _spotifyService.searchArtists('a', limit: 30);
+      final popularArtists = await SpotifyService.searchArtists('a', limit: 30);
       
       if (popularArtists.isNotEmpty) {
-        // Sort by popularity
         popularArtists.sort((a, b) => b.popularity.compareTo(a.popularity));
         return popularArtists.take(20).toList();
       }
       
       return _getDemoArtists('');
     } catch (e) {
-      print('❌ Popular artists failed: $e');
       return _getDemoArtists('');
     }
   }
@@ -53,8 +53,23 @@ class ArtistService {
   Future<Artist> getArtistDetails(String artistId) async {
     try {
       if (_useSpotify) {
-        final artist = await _spotifyService.getArtist(artistId);
-        final topTracks = await _spotifyService.getArtistTopTracks(artistId);
+        final artist = await SpotifyService.getArtist(artistId);
+        final topTracks = await SpotifyService.getArtistTopTracks(artistId);
+        
+        // Convert song_model.Song to Artist's Song with proper formatting
+        final List<Song> convertedSongs = topTracks.map((spotifySong) {
+          // Convert duration from milliseconds to "mm:ss" format
+          final String formattedDuration = _formatDuration(int.tryParse(spotifySong.duration as String) ?? 0);
+          
+          return Song(
+            id: spotifySong.id,
+            title: spotifySong.title,
+            duration: formattedDuration,
+            artist: spotifySong.artist,
+            albumArt: spotifySong.albumArt ?? '',
+            popularity: 0, // Default value since artist_model.Song requires it
+          );
+        }).toList();
         
         return Artist(
           id: artist.id,
@@ -62,7 +77,7 @@ class ArtistService {
           imageUrl: artist.imageUrl,
           songsCount: artist.songsCount,
           followers: artist.followers,
-          popularSongs: topTracks,
+          popularSongs: convertedSongs,
           popularity: artist.popularity,
           genres: artist.genres,
         );
@@ -70,7 +85,6 @@ class ArtistService {
         return _getDemoArtists('').first;
       }
     } catch (e) {
-      print('❌ Get artist details failed: $e');
       return _getDemoArtists('').first;
     }
   }
@@ -78,12 +92,26 @@ class ArtistService {
   Future<List<Song>> getArtistSongs(String artistId, String artistName) async {
     try {
       if (_useSpotify) {
-        return await _spotifyService.getArtistTopTracks(artistId);
+        final topTracks = await SpotifyService.getArtistTopTracks(artistId);
+        
+        // Convert song_model.Song to Artist's Song with proper formatting
+        return topTracks.map((spotifySong) {
+          // Convert duration from milliseconds to "mm:ss" format
+          final String formattedDuration = _formatDuration(int.tryParse(spotifySong.duration as String) ?? 0);
+          
+          return Song(
+            id: spotifySong.id,
+            title: spotifySong.title,
+            duration: formattedDuration,
+            artist: spotifySong.artist,
+            albumArt: spotifySong.albumArt ?? '',
+            popularity: 0, // Default value
+          );
+        }).toList();
       } else {
         return _getDemoSongs(artistName);
       }
     } catch (e) {
-      print('❌ Get artist songs failed: $e');
       return _getDemoSongs(artistName);
     }
   }

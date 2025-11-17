@@ -5,7 +5,6 @@ import 'spotify_service.dart';
 import 'local_songs_service.dart';
 
 class CombinedArtistService {
-  final SpotifyService _spotifyService = SpotifyService();
   final LocalSongsService _localSongsService = LocalSongsService();
   
   Future<List<artist_model.Artist>> getCombinedArtists() async {
@@ -40,7 +39,8 @@ class CombinedArtistService {
           // Try to get Spotify data
           artist_model.Artist? spotifyArtist;
           try {
-            final spotifyArtists = await _spotifyService.searchArtists(artistName, limit: 1);
+            // ✅ FIXED: Use static method directly
+            final spotifyArtists = await SpotifyService.searchArtists(artistName, limit: 1);
             if (spotifyArtists.isNotEmpty) {
               spotifyArtist = spotifyArtists.first;
             }
