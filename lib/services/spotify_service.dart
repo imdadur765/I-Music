@@ -150,7 +150,39 @@ class SpotifyService {
       rethrow;
     }
   }
-
+  // NEW: Batch process multiple artists at once
+static Future<List<Map<String, dynamic>>> getBatchArtistsData(List<String> artistNames) async {
+  try {
+    final url = Uri.parse('${SpotifyConfig.baseUrl}/api/artists/batch');
+    
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'artistNames': artistNames
+      }),
+    );
+    
+    if (response.statusCode == 200) {
+      final Map<String, dynamic> data = json.decode(response.body);
+      
+      if (data['success'] == true) {
+        return List<Map<String, dynamic>>.from(data['artists']);
+      } else {
+        throw Exception('Backend error: ${data['error']}');
+      }
+    } else {
+      throw Exception('HTTP Error: ${response.statusCode}');
+    }
+  } catch (e) {
+    print('❌ Batch artists error: $e');
+    // Return empty results for all artists
+    return artistNames.map((name) => {
+      'localName': name,
+      'spotifyArtist': null
+    }).toList();
+  }
+}
   // NEW: Enhance local songs with Spotify metadata
   static Future<List<Map<String, dynamic>>> enhanceLocalSongsMetadata(List<LocalSong> localSongs) async {
     try {

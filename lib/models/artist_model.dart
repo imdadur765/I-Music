@@ -34,19 +34,35 @@ class Artist {
 
   // Factory constructor for Spotify API
   factory Artist.fromSpotifyJson(Map<String, dynamic> json) {
-    return Artist(
-      id: json['id'] ?? '',
-      name: json['name'] ?? 'Unknown Artist',
-      imageUrl: json['images']?[0]?['url'] ?? '',
-      songsCount: 0, // Spotify doesn't provide this
-      followers: _formatFollowers(json['followers']?['total'] ?? 0),
-      popularSongs: [],
-      popularity: json['popularity'] ?? 0,
-      genres: List<String>.from(json['genres'] ?? []),
-      localSongs: const [],
-      localSongsCount: 0,
-    );
+  // Safely handle followers - could be int or Map
+  String formattedFollowers;
+  if (json['followers'] is int) {
+    formattedFollowers = _formatFollowers(json['followers'] as int);
+  } else if (json['followers'] is Map) {
+    formattedFollowers = _formatFollowers(json['followers']?['total'] ?? 0);
+  } else {
+    formattedFollowers = '0';
   }
+
+  // Safely handle images
+  String imageUrl = '';
+  if (json['images'] is List && json['images'].isNotEmpty) {
+    imageUrl = json['images'][0]?['url']?.toString() ?? '';
+  }
+
+  return Artist(
+    id: json['id']?.toString() ?? '',
+    name: json['name']?.toString() ?? 'Unknown Artist',
+    imageUrl: imageUrl,
+    songsCount: 0,
+    followers: formattedFollowers,
+    popularSongs: [],
+    popularity: json['popularity'] ?? 0,
+    genres: List<String>.from(json['genres'] ?? []),
+    localSongs: const [],
+    localSongsCount: 0,
+  );
+}
 
   // Factory constructor for combined data
   factory Artist.fromCombinedData({

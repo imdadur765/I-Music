@@ -312,78 +312,67 @@ app.get('/api/recommendations', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🎵 I Music Backend running on port ${PORT}`);
-  console.log(`🚀 Server: http://localhost:${PORT}`);
-});
-// Local files metadata enhancement - ADD THIS AT THE END BEFORE app.listen
-app.post('/api/enhance-local-metadata', async (req, res) => {
+// ================== NEW ENDPOINTS ==================
+
+// Batch process multiple artists at once - FAST
+app.post('/api/artists/batch', async (req, res) => {
   try {
-    const { songs } = req.body;
+    const { artistNames } = req.body;
     
-    if (!songs || !Array.isArray(songs)) {
+    if (!artistNames || !Array.isArray(artistNames)) {
       return res.status(400).json({
         success: false,
-        error: 'Songs array is required'
+        error: 'Artist names array is required'
       });
     }
 
+    console.log(`🎯 Batch processing ${artistNames.length} artists`);
+    
     const tokenData = await spotifyApi.clientCredentialsGrant();
     spotifyApi.setAccessToken(tokenData.body['access_token']);
 
-    const enhancedSongs = [];
-
-    for (const localSong of songs) {
-      try {
-        const searchData = await spotifyApi.searchTracks(
-          `${localSong.title} ${localSong.artist}`, 
-          { limit: 1 }
-        );
-
-        if (searchData.body.tracks.items.length > 0) {
-          const spotifyTrack = searchData.body.tracks.items[0];
-          
-          enhancedSongs.push({
-            localData: localSong,
-            spotifyData: {
-              id: spotifyTrack.id,
-              name: spotifyTrack.name,
-              artists: spotifyTrack.artists.map(artist => ({
-                id: artist.id,
-                name: artist.name
-              })),
-              album: {
-                name: spotifyTrack.album.name,
-                images: spotifyTrack.album.images
-              },
-              duration_ms: spotifyTrack.duration_ms,
-              preview_url: spotifyTrack.preview_url,
-              popularity: spotifyTrack.popularity
-            }
-          });
-        } else {
-          enhancedSongs.push({
-            localData: localSong,
-            spotifyData: null
-          });
-        }
-      } catch (error) {
-        enhancedSongs.push({
-          localData: localSong,
-          spotifyData: null
-        });
+    const batchResults = [];
+    
+    // Process in batches of 5 to avoid rate limiting
+    for (let i = 0; i < artistNames.length; i += 5) {
+      const batch = artistNames.slice(i, i + 5);
+      const batchPromises = batch.map(artistName => 
+        spotifyApi.searchArtists(artistName, { limit: 1 })
+          .then(searchData => ({
+            localName: artistName,
+            spotifyArtist: searchData.body.artists.items.length > 0 ? {
+              id: searchData.body.artists.items[0].id,
+              name: searchData.body.artists.items[0].name,
+              images: searchData.body.artists.items[0].images,
+              popularity: searchData.body.artists.items[0].popularity,
+              followers: searchData.body.artists.items[0].followers?.total || 0,
+              genres: searchData.body.artists.items[0].genres
+            } : null
+          }))
+          .catch(error => ({
+            localName: artistName,
+            spotifyArtist: null
+          }))
+      );
+      
+      const batchResult = await Promise.all(batchPromises);
+      batchResults.push(...batchResult);
+      
+      // Small delay to avoid rate limiting
+      if (i + 5 < artistNames.length) {
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
     }
 
     res.json({
       success: true,
-      enhancedSongs: enhancedSongs
+      artists: batchResults
     });
   } catch (error) {
+    console.error('Batch artists error:', error);
     res.status(500).json({ 
       success: false, 
-      error: 'Failed to enhance metadata'
+      error: 'Batch processing failed'
     });
   }
 });
@@ -447,4 +436,12 @@ app.get('/api/artists-from-local', async (req, res) => {
       error: 'Failed to fetch artists data'
     });
   }
+});
+
+// ================== SERVER START ==================
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🎵 I Music Backend running on port ${PORT}`);
+  console.log(`🚀 Server: http://localhost:${PORT}`);
 });

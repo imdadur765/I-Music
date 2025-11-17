@@ -10,7 +10,7 @@ class SpotifyConfig {
   static const String getArtistTopTracksUrl = '$baseUrl/api/artists';
   static const String getTrackUrl = '$baseUrl/api/tracks';
   static const String getRecommendationsUrl = '$baseUrl/api/recommendations';
-  
+  static const String getBatchArtistsUrl = '$baseUrl/api/artists/batch';
   // NEW Endpoints for local files
   static const String enhanceLocalMetadataUrl = '$baseUrl/api/enhance-local-metadata';
   static const String getArtistsFromLocalUrl = '$baseUrl/api/artists-from-local';
