@@ -1,10 +1,7 @@
-// lib/app.dart - SIMPLE VERSION
+// lib/app.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-// ignore: unused_import
-import 'package:flutter/services.dart';
-import 'screens/songs_list_screen.dart';
-import 'widgets/mini_player.dart';
+import 'screens/home_screen.dart';
 
 class IMusicApp extends ConsumerWidget {
   const IMusicApp({super.key});
@@ -23,19 +20,7 @@ class IMusicApp extends ConsumerWidget {
           elevation: 0,
         ),
       ),
-      home: const Scaffold(
-        body: Stack(
-          children: [
-            SongsListScreen(),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: MiniPlayer(),
-            ),
-          ],
-        ),
-      ),
+      home: const HomeScreen(), // Change to HomeScreen instead of direct Scaffold
     );
   }
 }
