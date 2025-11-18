@@ -1,5 +1,4 @@
 import '../models/artist_model.dart';
-import '../models/song_model.dart' as song_model;
 import 'spotify_service.dart';
 
 class ArtistService {

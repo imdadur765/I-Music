@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:i_music/services/local_songs_service.dart';
+import 'services/real_media_store_service.dart' as real_media;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -20,6 +21,7 @@ import 'models/playlist_model.dart';
 import 'services/background_audio_service.dart';
 import 'services/album_art_service.dart';
 import 'services/preload_service.dart'; // ✅ ADD PRELOAD SERVICE
+import 'services/combined_artist_service.dart';
 
 // ✅ Global audio handler
 late AudioHandler globalAudioHandler;
@@ -38,7 +40,7 @@ bool _isPreloadingThumbnails = false;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   if (_isAppRunning) {
     debugPrint('📱 App already running');
     return;
@@ -66,22 +68,21 @@ Future<void> main() async {
     globalAudioHandler = await _initializeAudioServiceNonBlocking();
     final localSongsService = LocalSongsService();
     final permissions = await localSongsService.checkPermissions();
-  
+
     if (!permissions['hasStoragePermission']!) {
-    await localSongsService.requestPermissions();
+      await localSongsService.requestPermissions();
     }
     // ✅ STEP 7: Setup SWIPE KILL lifecycle listeners
     _setupAppLifecycleListeners();
-    
+
     // ✅ STEP 8: Start app immediately
     _isAppRunning = true;
     runApp(const ProviderScope(child: IMusicAppWithPreloading())); // ✅ CHANGE TO PRELOADING VERSION
-    
+
     // ✅ STEP 9: Start non-critical initializations in background
     unawaited(_initializeBackgroundComponents());
 
     debugPrint('🎵 i_music APP STARTED WITH SWIPE KILL PROTECTION & PRELOADING!');
-    
   } catch (error, stack) {
     debugPrint('❌ App initialization failed: $error');
     debugPrint('Stack: $stack');
@@ -97,7 +98,7 @@ class IMusicAppWithPreloading extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // ✅ Preload thumbnails when app starts and songs are loaded
     final songsAsync = ref.watch(songsProvider);
-    
+
     songsAsync.whenData((songs) {
       if (songs.isNotEmpty && !_isPreloadingThumbnails) {
         _isPreloadingThumbnails = true;
@@ -113,10 +114,10 @@ class IMusicAppWithPreloading extends ConsumerWidget {
   Future<void> _startBackgroundPreloading(List<Song> songs) async {
     try {
       debugPrint('🚀 Starting background thumbnail preloading for ${songs.length} songs...');
-      
+
       // ✅ Use the preload service to load thumbnails in background
       await PreloadService().preloadAllThumbnails(songs);
-      
+
       debugPrint('✅ Background thumbnail preloading completed');
     } catch (e) {
       debugPrint('⚠️ Background preloading error: $e');
@@ -149,14 +150,13 @@ Future<AudioHandler> _initializeAudioServiceNonBlocking() async {
 
     debugPrint('✅ Audio Service initialized via standard method');
     return audioHandler;
-    
   } catch (e) {
     debugPrint('⚠️ Standard AudioService.init had issues: $e');
-    
+
     // ✅ FALLBACK: Create handler directly but DON'T wait
     debugPrint('🔄 Creating BackgroundAudioHandler directly with Swipe Kill protection...');
     final directHandler = BackgroundAudioHandler();
-    
+
     // ✅ CRITICAL: Don't wait for full initialization - let it happen in background
     debugPrint('✅ Direct BackgroundAudioHandler created (initializing in background)');
     return directHandler;
@@ -181,6 +181,8 @@ Future<void> _initializeBackgroundComponents() async {
     await _checkAndRequestStoragePermission().timeout(const Duration(seconds: 5));
     _setupNativeMethodHandler();
     unawaited(_preloadAlbumArtsInBackground());
+    // ✅ Start fast concurrent preloading of songs, thumbnails and artists (non-blocking)
+    unawaited(fastPreloadEverything());
     debugPrint('✅ Background components initialized');
   } catch (e) {
     debugPrint('⚠️ Background components had issues: $e');
@@ -221,7 +223,7 @@ void _runFallbackAppWithAutoRetry() {
       ),
     ),
   );
-  
+
   // ✅ AUTO-RETRY after 1 second (user won't even notice)
   Future.delayed(const Duration(seconds: 1), () {
     _retryInitialization();
@@ -243,10 +245,10 @@ void _setupAppLifecycleListeners() {
       // ✅ SWIPE KILL: Correct parameter names
       resumeCallBack: () async {
         debugPrint('📱 App resumed - checking swipe kill status...');
-        
+
         // ✅ SWIPE KILL: Clear the app killed flag on resume
         await BackgroundAudioHandler.clearAppKilledFlag();
-        
+
         _closeDetectionTimer?.cancel();
         _isFromCloseButton = false;
         debugPrint('🟢 SWIPE KILL: App resumed - session active');
@@ -255,7 +257,7 @@ void _setupAppLifecycleListeners() {
         debugPrint('📱 App detached - checking close type for swipe kill...');
         try {
           _closeDetectionTimer?.cancel();
-          
+
           if (_isFromCloseButton) {
             debugPrint('🚫 CLOSE BUTTON: Clearing lifetime session');
             await _clearForCloseButton(globalAudioHandler);
@@ -341,7 +343,7 @@ class LifecycleEventHandler extends WidgetsBindingObserver {
 
   // ✅ SWIPE KILL: Correct constructor parameter names
   LifecycleEventHandler({
-    this.resumeCallBack, 
+    this.resumeCallBack,
     this.detachedCallBack,
     this.pauseCallBack,
     this.hiddenCallBack,
@@ -385,7 +387,7 @@ void _setupNativeMethodHandler() {
           debugPrint('🛑 Stopping audio service from native...');
           await _stopAudioServiceCompletely();
           return 'Audio service stopped';
-        
+
         case 'onPermissionsResult':
           debugPrint('🔐 Permissions result received from native');
           await _checkAndRequestStoragePermission();
@@ -534,9 +536,7 @@ Future<void> _requestAppPermissions() async {
     }
 
     // Check current status
-    final permissionStatuses = await Future.wait(
-      permissionsToRequest.map((permission) => permission.status)
-    );
+    final permissionStatuses = await Future.wait(permissionsToRequest.map((permission) => permission.status));
 
     // If already granted, return
     final allGranted = permissionStatuses.every((status) => status.isGranted);
@@ -635,7 +635,7 @@ Future<void> requestInitialPermissions() async {
     if (kDebugMode) {
       print('❌ Audio permission denied');
     }
-  } 
+  }
 
   // Notification Permission
   final notificationStatus = await Permission.notification.request();
@@ -667,21 +667,21 @@ Future<void> requestInitialPermissions() async {
 Future<void> testMediaSession() async {
   try {
     debugPrint('🧪 Testing MediaSession functionality with Swipe Kill...');
-    
+
     final audioHandler = getAudioHandler();
-    
+
     final mediaItem = audioHandler.mediaItem.value;
     final playbackState = audioHandler.playbackState.value;
-    
+
     debugPrint('🎵 Current MediaItem: ${mediaItem?.title}');
     debugPrint('🎵 MediaItem ID: ${mediaItem?.id}');
     debugPrint('🎵 Playback State: ${playbackState.playing}');
     debugPrint('🎵 Processing State: ${playbackState.processingState}');
-    
+
     // ✅ SWIPE KILL: Test swipe kill status
     final wasKilled = await BackgroundAudioHandler.wasAppKilled();
     debugPrint('🔍 SWIPE KILL Status: $wasKilled');
-    
+
     debugPrint('✅ MediaSession test completed with Swipe Kill check');
   } catch (e) {
     debugPrint('❌ MediaSession test failed: $e');
@@ -730,7 +730,6 @@ void _runFallbackApp() {
               const SizedBox(height: 10),
               const Text('Failed to initialize\nPlease restart/Clear App Data',
                   textAlign: TextAlign.center, style: TextStyle(color: Colors.white54)),
-              
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: () {
@@ -752,7 +751,7 @@ Future<Map<String, dynamic>> getCurrentAppStatus() async {
     final wasKilled = await BackgroundAudioHandler.wasAppKilled();
     final audioHandler = globalAudioHandler;
     final hasSession = audioHandler.mediaItem.value != null;
-    
+
     return {
       'wasAppKilled': wasKilled,
       'hasAudioSession': hasSession,
@@ -764,5 +763,60 @@ Future<Map<String, dynamic>> getCurrentAppStatus() async {
   } catch (e) {
     debugPrint('❌ Error getting app status: $e');
     return {'error': e.toString()};
+  }
+}
+
+// ✅ PRELOAD: Pre-load artists when app starts (non-blocking)
+Future<void> preloadArtists() async {
+  try {
+    final artists = await CombinedArtistService().getCombinedArtists();
+    debugPrint('✅ Preloaded ${artists.length} artists');
+  } catch (e) {
+    debugPrint('⚠️ Preloading artists failed: $e');
+  }
+}
+
+// ✅ FAST PRELOAD: Concurrently preload songs, thumbnails and artists
+Future<void> fastPreloadEverything({int thumbnailBatchSize = 20}) async {
+  try {
+    debugPrint('🚀 Fast preload: fetching songs from MediaStore...');
+
+    // Use the real media store service to get Song objects (already validated)
+    final service = real_media.RealMediaStoreService();
+    final songs = await service.fetchSongs();
+
+    if (songs.isEmpty) {
+      debugPrint('⚠️ Fast preload: no songs found to preload');
+      return;
+    }
+
+    debugPrint('🚀 Fast preload: fetched ${songs.length} songs — starting concurrent tasks');
+
+    // Start thumbnail preloading and artist combining concurrently
+    final futures = <Future<void>>[];
+
+    futures.add(PreloadService().preloadAllThumbnails(songs));
+    futures.add(CombinedArtistService().getCombinedArtists().then((artists) {
+      debugPrint('✅ Fast preload: combined ${artists.length} artists');
+    }));
+
+    // Optionally warm a small set of album arts in parallel for the first N songs
+    futures.add(Future(() async {
+      final limit = songs.length < 50 ? songs.length : 50; // warm top 50
+      final batch = songs.sublist(0, limit);
+      final artFutures = batch.map((s) => AlbumArtService.getThumbnail(
+            songId: int.tryParse(s.id) ?? 0,
+            songTitle: s.title,
+            artist: s.artist,
+          ));
+      await Future.wait(artFutures, eagerError: false);
+      debugPrint('✅ Fast preload: warmed album art for $limit songs');
+    }() as FutureOr<void> Function()));
+
+    // Wait for the lightweight tasks to finish, but don't block too long
+    await Future.wait(futures, eagerError: false);
+    debugPrint('✅ Fast preload: all tasks completed');
+  } catch (e) {
+    debugPrint('⚠️ Fast preload failed: $e');
   }
 }

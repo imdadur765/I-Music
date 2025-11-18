@@ -142,6 +142,17 @@ for (final artistName in localArtists) {
     ).toList();
     
     if (cachedResults.isNotEmpty) {
+      // If some cached results are missing images, refresh their Spotify data in background
+      final namesMissingImages = cachedResults
+          .where((a) => a.imageUrl.isEmpty)
+          .map((a) => a.name)
+          .toList();
+
+      if (namesMissingImages.isNotEmpty) {
+        // Fire-and-forget background refresh to update cache with Spotify images
+        Future.microtask(() => _refreshSpotifyDataForArtists(namesMissingImages));
+      }
+
       return cachedResults;
     }
     
@@ -150,6 +161,51 @@ for (final artistName in localArtists) {
     return allArtists.where((artist) => 
       artist.name.toLowerCase().contains(query.toLowerCase())
     ).toList();
+  }
+
+  // Refresh Spotify data for given artist names and update the cache (background)
+  Future<void> _refreshSpotifyDataForArtists(List<String> names) async {
+    try {
+      if (names.isEmpty) return;
+
+      if (kDebugMode) {
+        print('🔁 Refreshing Spotify data for ${names.length} cached artists');
+      }
+
+      final batch = await _getBatchArtistsData(names);
+
+      for (final data in batch) {
+        final localName = data['localName'] as String? ?? '';
+        final spotifyJson = data['spotifyArtist'];
+
+        if (spotifyJson == null) continue;
+
+        // Build spotify artist and local songs list
+        final spotifyArtist = artist_model.Artist.fromSpotifyJson(spotifyJson);
+        final localSongsRaw = await _localSongsService.getSongsByArtist(localName);
+        final artistLocalSongs = localSongsRaw.map((s) => artist_model.LocalSong(
+          id: s.id,
+          title: s.title,
+          album: s.album,
+          artist: s.artist,
+          path: s.path,
+          duration: s.duration,
+          size: s.size,
+        )).toList();
+
+        final combined = artist_model.Artist.fromCombinedData(
+          spotifyArtist: spotifyArtist,
+          localSongs: artistLocalSongs,
+        );
+
+        // Update cache entry
+        _artistCache[localName] = combined;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ _refreshSpotifyDataForArtists error: $e');
+      }
+    }
   }
 
   // Clear cache (call this when songs change)
