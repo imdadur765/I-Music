@@ -1,3 +1,5 @@
+// ignore_for_file: unnecessary_import
+
 import 'dart:io';
 import 'dart:async';
 import 'dart:typed_data';
@@ -39,38 +41,80 @@ class AlbumArtService {
     }
   }
 
-  // ✅ MAIN ALBUM ART GETTER - FULLY OPTIMIZED
+  // ✅ FIXED: MAIN ALBUM ART GETTER - ACCEPTS BOTH STRING AND INT
   static Future<Uint8List?> getAlbumArt({
-    required int songId,
+    required dynamic songId,           // ✅ Changed to dynamic
+    int? mediaStoreId,                 // ✅ Optional mediaStoreId
     required String songTitle,
     required String artist,
     bool preload = false,
   }) async {
-    // ✅ 1. MEMORY CACHE CHECK (INSTANT)
-    if (_albumArtCache.containsKey(songId)) {
-      return _albumArtCache[songId];
-    }
+    try {
+      // ✅ CONVERT ANY SONG ID TO INT FOR CONSISTENCY
+      int effectiveMediaStoreId = _parseSongIdToInt(songId, mediaStoreId);
+      
+      if (effectiveMediaStoreId == 0) {
+        debugPrint('❌ Invalid songId: $songId, mediaStoreId: $mediaStoreId');
+        return null;
+      }
 
-    // ✅ 2. DEDUPLICATE SIMULTANEOUS REQUESTS
-    final cacheKey = songId.toString();
-    if (_pendingCacheOperations.containsKey(cacheKey)) {
-      return _pendingCacheOperations[cacheKey];
-    }
+      // ✅ 1. MEMORY CACHE CHECK (INSTANT)
+      if (_albumArtCache.containsKey(effectiveMediaStoreId)) {
+        if (!preload) {
+          debugPrint('✅ MEMORY CACHE HIT: "$songTitle"');
+        }
+        return _albumArtCache[effectiveMediaStoreId];
+      }
 
-    final operation = _getAlbumArtInternal(
-      songId: songId,
-      songTitle: songTitle,
-      artist: artist,
-      preload: preload,
-    );
-    
-    _pendingCacheOperations[cacheKey] = operation;
-    operation.whenComplete(() => _pendingCacheOperations.remove(cacheKey));
-    
-    return operation;
+      // ✅ 2. DEDUPLICATE SIMULTANEOUS REQUESTS
+      final cacheKey = effectiveMediaStoreId.toString();
+      if (_pendingCacheOperations.containsKey(cacheKey)) {
+        return _pendingCacheOperations[cacheKey];
+      }
+
+      final operation = _getAlbumArtInternal(
+        songId: effectiveMediaStoreId,
+        songTitle: songTitle,
+        artist: artist,
+        preload: preload,
+      );
+      
+      _pendingCacheOperations[cacheKey] = operation;
+      operation.whenComplete(() => _pendingCacheOperations.remove(cacheKey));
+      
+      return operation;
+      
+    } catch (e) {
+      debugPrint('❌ Error in getAlbumArt: $e');
+      return null;
+    }
   }
 
-  // ✅ INTERNAL IMPLEMENTATION
+  // ✅ HELPER: CONVERT ANY SONG ID TO INTEGER
+  static int _parseSongIdToInt(dynamic songId, int? mediaStoreId) {
+    try {
+      // Priority 1: Use mediaStoreId if provided
+      if (mediaStoreId != null && mediaStoreId > 0) {
+        return mediaStoreId;
+      }
+      
+      // Priority 2: Parse songId to int
+      if (songId is int) {
+        return songId;
+      } else if (songId is String) {
+        return int.tryParse(songId) ?? 0;
+      } else if (songId != null) {
+        return int.tryParse(songId.toString()) ?? 0;
+      }
+      
+      return 0;
+    } catch (e) {
+      debugPrint('❌ Error parsing songId: $e');
+      return 0;
+    }
+  }
+
+  // ✅ INTERNAL IMPLEMENTATION - USES INT SONG ID
   static Future<Uint8List?> _getAlbumArtInternal({
     required int songId,
     required String songTitle,
@@ -82,6 +126,9 @@ class AlbumArtService {
       final lifetimeCached = await _loadFromLifetimeCache(songId);
       if (lifetimeCached != null) {
         _albumArtCache[songId] = lifetimeCached;
+        if (!preload) {
+          debugPrint('✅ LIFETIME CACHE HIT: "$songTitle"');
+        }
         return lifetimeCached;
       }
 
@@ -103,7 +150,7 @@ class AlbumArtService {
 
       // ✅ 4. NATIVE CHANNEL CALL WITH TIMEOUT
       final result = await _channel.invokeMethod('getAlbumArt', {
-        'songId': songId,
+        'songId': songId,  // ✅ Now always int
         'title': songTitle,
         'artist': artist,
       }).timeout(const Duration(seconds: 3), onTimeout: () {
@@ -169,7 +216,7 @@ class AlbumArtService {
       final filePath = _lifetimeCacheBox.get(songId);
       if (filePath != null) {
         final file = File(filePath);
-        if (await file.exists()) {
+        if (file.existsSync()) {
           final data = await file.readAsBytes();
           return data;
         } else {
@@ -184,7 +231,7 @@ class AlbumArtService {
     }
   }
 
-  // ✅ SMART PRELOAD - FOR VISIBLE ITEMS ONLY
+  // ✅ FIXED: SMART PRELOAD - FOR VISIBLE ITEMS ONLY
   static Future<void> preloadVisibleAlbumArts(List<Map<String, dynamic>> visibleSongs) async {
     if (!_isLifetimeCacheInitialized) await init();
     if (visibleSongs.isEmpty) return;
@@ -200,18 +247,20 @@ class AlbumArtService {
 
       final batchFuture = Future(() async {
         for (final song in batch) {
-          final songId = song['id'] ?? song['mediaStoreId'];
+          final songId = song['id'];
+          final mediaStoreId = song['mediaStoreId'];
           final title = song['title']?.toString() ?? '';
           final artist = song['artist']?.toString() ?? '';
           
           if (songId != null && title.isNotEmpty) {
             // Don't await - fire and forget
-            unawaited(getAlbumArt(
+            getAlbumArt(
               songId: songId,
+              mediaStoreId: mediaStoreId,
               songTitle: title,
               artist: artist,
               preload: true,
-            ));
+            );
           }
         }
       });
@@ -227,7 +276,7 @@ class AlbumArtService {
     await Future.wait(futures);
   }
 
-  // ✅ BACKGROUND PRELOAD - ENTIRE LIBRARY
+  // ✅ FIXED: BACKGROUND PRELOAD - ENTIRE LIBRARY
   static Future<void> preloadAllAlbumArts(List<Map<String, dynamic>> allSongs) async {
     if (!_isLifetimeCacheInitialized) await init();
     if (allSongs.isEmpty) return;
@@ -235,7 +284,7 @@ class AlbumArtService {
     debugPrint('🚀 BACKGROUND PRELOAD: ${allSongs.length} songs...');
     
     // Run in background without blocking
-    unawaited(Future(() async {
+    Future(() async {
       int processed = 0;
       const batchSize = 15;
       
@@ -244,21 +293,26 @@ class AlbumArtService {
         final batch = allSongs.sublist(i, endIndex);
 
         for (final song in batch) {
-          final songId = song['id'] ?? song['mediaStoreId'];
+          final songId = song['id'];
+          final mediaStoreId = song['mediaStoreId'];
           final albumArtPath = song['albumArt']?.toString() ?? '';
           
           if (songId != null && albumArtPath.isNotEmpty) {
-            // Only cache if not already cached
-            final existingPath = _lifetimeCacheBox.get(songId);
-            if (existingPath == null) {
-              try {
-                final file = File(albumArtPath);
-                if (await file.exists()) {
-                  final bytes = await file.readAsBytes();
-                  await _saveToLifetimeCache(songId, bytes);
+            // Convert to effective ID for cache checking
+            final effectiveId = _parseSongIdToInt(songId, mediaStoreId);
+            if (effectiveId > 0) {
+              // Only cache if not already cached
+              final existingPath = _lifetimeCacheBox.get(effectiveId);
+              if (existingPath == null) {
+                try {
+                  final file = File(albumArtPath);
+                  if (file.existsSync()) {
+                    final bytes = await file.readAsBytes();
+                    await _saveToLifetimeCache(effectiveId, bytes);
+                  }
+                } catch (e) {
+                  // Silent fail for background preload
                 }
-              } catch (e) {
-                // Silent fail for background preload
               }
             }
           }
@@ -276,24 +330,30 @@ class AlbumArtService {
       }
       
       debugPrint('💾 BACKGROUND PRELOAD COMPLETE: $processed songs');
-    }));
+    });
   }
 
-  // ✅ OPTIMIZED THUMBNAIL GETTER
+  // ✅ FIXED: OPTIMIZED THUMBNAIL GETTER
   static Future<Uint8List?> getThumbnail({
-    required int songId,
+    required dynamic songId,
+    int? mediaStoreId,
     required String songTitle,
     required String artist,
   }) async {
     try {
+      // Convert to effective ID
+      final effectiveId = _parseSongIdToInt(songId, mediaStoreId);
+      if (effectiveId == 0) return null;
+
       // Memory cache check
-      if (_thumbnailCache.containsKey(songId)) {
-        return _thumbnailCache[songId];
+      if (_thumbnailCache.containsKey(effectiveId)) {
+        return _thumbnailCache[effectiveId];
       }
 
       // Get original image
       final original = await getAlbumArt(
         songId: songId,
+        mediaStoreId: mediaStoreId,
         songTitle: songTitle,
         artist: artist,
       );
@@ -301,7 +361,7 @@ class AlbumArtService {
       if (original != null) {
         // Generate thumbnail (replace with your implementation)
         final thumbnail = await _generateThumbnail(original);
-        _thumbnailCache[songId] = thumbnail;
+        _thumbnailCache[effectiveId] = thumbnail;
         return thumbnail;
       }
 
@@ -313,22 +373,11 @@ class AlbumArtService {
 
   // ✅ THUMBNAIL GENERATOR
   static Future<Uint8List> _generateThumbnail(Uint8List originalBytes) async {
-    // TODO: Implement your thumbnail generation logic
     // For now, return original as placeholder
     return originalBytes;
   }
 
-  // ✅ PERMISSION CHECK
-  static Future<bool> _hasStoragePermission() async {
-    try {
-      // TODO: Implement your permission check logic
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // ✅ CACHE MANAGEMENT
+  // ✅ FIXED: CACHE MANAGEMENT
   static Future<void> clearCache({bool memoryOnly = false}) async {
     // Clear memory caches
     _albumArtCache.clear();
@@ -343,13 +392,17 @@ class AlbumArtService {
         
         // Delete cached files
         final tempDir = await getTemporaryDirectory();
-        final files = await tempDir.list().toList();
+        final files = tempDir.listSync();
         
-        final deleteFutures = files
-            .where((file) => file.path.contains('lifetime_'))
-            .map((file) => file.delete());
-            
-        await Future.wait(deleteFutures, eagerError: false);
+        for (final file in files) {
+          if (file.path.contains('lifetime_')) {
+            try {
+              file.deleteSync();
+            } catch (e) {
+              // Ignore delete errors
+            }
+          }
+        }
         
         debugPrint('🗑️ LIFETIME CACHE CLEARED');
       } catch (e) {
@@ -360,15 +413,19 @@ class AlbumArtService {
     debugPrint('✅ CACHE CLEARED: ${memoryOnly ? 'memory only' : 'complete'}');
   }
 
-  // ✅ CHECK IF ALBUM ART EXISTS
+  // ✅ FIXED: CHECK IF ALBUM ART EXISTS
   static Future<bool> hasAlbumArt(Song song) async {
     try {
-      if (_albumArtCache.containsKey(song.id)) return true;
+      final effectiveId = _parseSongIdToInt(song.id, song.mediaStoreId);
+      if (effectiveId == 0) return false;
+
+      if (_albumArtCache.containsKey(effectiveId)) return true;
       
       if (_isLifetimeCacheInitialized) {
-        final filePath = _lifetimeCacheBox.get(song.id);
-        if (filePath != null && await File(filePath).exists()) {
-          return true;
+        final filePath = _lifetimeCacheBox.get(effectiveId);
+        if (filePath != null) {
+          final file = File(filePath);
+          return file.existsSync();
         }
       }
       
@@ -383,14 +440,14 @@ class AlbumArtService {
     return albumArtPath ?? '';
   }
 
-  // ✅ CACHE STATISTICS
+  // ✅ FIXED: CACHE STATISTICS
   static Future<Map<String, dynamic>> getCacheStats() async {
     int diskFileCount = 0;
 
     if (_isLifetimeCacheInitialized) {
       try {
         final tempDir = await getTemporaryDirectory();
-        final files = await tempDir.list().toList();
+        final files = tempDir.listSync();
         diskFileCount = files.where((f) => f.path.contains('lifetime_')).length;
       } catch (e) {
         debugPrint('❌ Error counting disk files: $e');
@@ -430,11 +487,11 @@ class AlbumArtService {
 
     try {
       final tempDir = await getTemporaryDirectory();
-      final files = await tempDir.list().toList();
+      final files = tempDir.listSync();
       
       int totalSize = 0;
       for (var file in files.where((f) => f.path.contains('lifetime_'))) {
-        final stat = await file.stat();
+        final stat = file.statSync();
         totalSize += stat.size;
       }
       

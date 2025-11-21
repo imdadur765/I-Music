@@ -1,7 +1,8 @@
 // lib/screens/player_screen.dart
-// ignore_for_file: deprecated_member_use
+// ignore_for_file: deprecated_member_use, use_build_context_synchronously
 
 import 'dart:async';
+// ignore: unnecessary_import
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +13,7 @@ import 'package:i_music/widgets/album_art_widget.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:i_music/services/lyrics_cache_service.dart';
 import 'package:i_music/services/file_picker_service.dart';
+import 'package:i_music/services/album_art_service.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({super.key});
@@ -36,12 +38,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   // Song list panel
   bool _showSongList = false;
 
-  // ✅ PERFORMANCE FIX: Add these variables
+  // ✅ ULTIMATE PERFORMANCE FIXES
   late Timer _progressTimer;
   MediaItem? _currentMediaItem;
   PlaybackState? _currentPlaybackState;
   bool _isPlaying = false;
   Song? _currentSong;
+  
+  // ✅ NEW: Optimized list variables (SAME AS SONGS LIST SCREEN)
+  final _scrollController = ScrollController();
+  List<Song> _cachedSongs = [];
+  bool _isSongListLoading = false;
+  
+  // ✅ NEW: Cache for album arts to prevent rebuilds
+  final _albumArtCache = <String, ImageProvider>{};
 
   @override
   void initState() {
@@ -55,20 +65,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       vsync: this,
     );
 
-    // ✅ PERFORMANCE FIX: Single subscription to audio handler
     _setupAudioListeners();
     
-    // ✅ PERFORMANCE FIX: Optimized progress updates
-    _progressTimer = Timer.periodic(const Duration(milliseconds: 250), (timer) {
+    // ✅ OPTIMIZED: Less frequent progress updates
+    _progressTimer = Timer.periodic(const Duration(milliseconds: 300), (timer) {
       if (mounted && !_isDragging) {
         _updateProgress();
       }
     });
   }
 
-  // ✅ PERFORMANCE FIX: Single method for all audio listeners
   void _setupAudioListeners() {
-    // MediaItem listener
     main_app.globalAudioHandler.mediaItem.listen((mediaItem) {
       if (mounted && mediaItem != _currentMediaItem) {
         setState(() {
@@ -81,13 +88,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
     });
 
-    // PlaybackState listener
     main_app.globalAudioHandler.playbackState.listen((playbackState) {
       if (mounted) {
         final wasPlaying = _isPlaying;
         _isPlaying = playbackState.playing;
         
-        // Only update if state actually changed
         if (wasPlaying != _isPlaying || playbackState != _currentPlaybackState) {
           setState(() {
             _currentPlaybackState = playbackState;
@@ -102,10 +107,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void dispose() {
     _rotationController.dispose();
     _progressTimer.cancel();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  // ✅ PERFORMANCE FIX: Optimized progress update
   void _updateProgress() {
     final playbackState = _currentPlaybackState ?? main_app.globalAudioHandler.playbackState.value;
     final position = playbackState.position;
@@ -113,7 +118,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (_currentMediaItem != null) {
       final totalMs = _currentMediaItem!.duration?.inMilliseconds ?? 0;
       if (totalMs > 0) {
-        // Only update if position actually changed significantly
         final newPosition = totalMs > 0 ? position.inMilliseconds / totalMs : 0.0;
         if ((newPosition - _currentPosition).abs() > 0.001 || !_isDragging) {
           setState(() {
@@ -140,7 +144,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       main_app.globalAudioHandler.seek(newPosition);
     }
 
-    // ✅ PERFORMANCE FIX: Use shorter delay
     Future.delayed(const Duration(milliseconds: 50), () {
       if (mounted) {
         setState(() {
@@ -198,7 +201,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 
-  // ✅ PERFORMANCE FIX: Handle animation in separate method
   void _handlePlaybackState(bool isPlaying) {
     if (isPlaying) {
       if (!_rotationController.isAnimating) {
@@ -211,7 +213,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
   }
 
-  // ✅ FILE PICKER METHODS (Same as before)
+  // ✅ FILE PICKER METHODS
   Future<void> _importAudioFiles() async {
     try {
       final files = await FilePickerService.pickAudioFiles();
@@ -328,91 +330,61 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 
-  // ✅ SONG LIST METHODS
+  // ✅ ULTRA-OPTIMIZED SONG LIST METHODS (LIKE SONGS LIST SCREEN)
   void _toggleSongList() {
     setState(() {
       _showSongList = !_showSongList;
+      if (_showSongList) {
+        _precacheSongList();
+      }
     });
   }
 
-  // ✅ PERFORMANCE FIX: Memoized song list item builder
-  Widget _buildSongListItem(Song song, int index, bool isCurrent) {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-      decoration: BoxDecoration(
-        color: isCurrent 
-            ? Colors.deepPurple.withOpacity(0.3)
-            : Colors.grey[900]?.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(12),
-        border: isCurrent 
-            ? Border.all(color: Colors.deepPurple.shade400, width: 1)
-            : null,
-      ),
-      child: ListTile(
-        leading: Container(
-          width: 50,
-          height: 50,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            color: Colors.grey[800],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: NowPlayingAlbumArt(
-              song: song,
-              size: 50,
-            ),
-          ),
-        ),
-        title: Text(
-          song.title,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          song.artist,
-          style: TextStyle(
-            color: Colors.white70,
-            fontSize: 14,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: isCurrent
-            ? Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.deepPurple,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Text(
-                  'PLAYING',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              )
-            : Text(
-                _formatDuration(Duration(milliseconds: song.duration)),
-                style: const TextStyle(
-                  color: Colors.white60,
-                  fontSize: 12,
-                ),
-              ),
-        onTap: () {
-          final songs = ref.read(songsProvider).value ?? [];
-          playSong(ref, song, songs);
-          _toggleSongList();
-        },
-      ),
-    );
+  // ✅ NEW: Pre-cache song list data like SongsListScreen
+  void _precacheSongList() {
+    if (_isSongListLoading) return;
+    
+    _isSongListLoading = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final songs = ref.read(songsProvider).value ?? [];
+        if (songs.isNotEmpty) {
+          setState(() {
+            _cachedSongs = List.from(songs);
+          });
+          
+          // ✅ Pre-cache album arts in background - EXACTLY LIKE SONGS LIST SCREEN
+          await _precacheAlbumArts(songs);
+        }
+      } catch (e) {
+        debugPrint('Precache error: $e');
+      } finally {
+        if (mounted) {
+          setState(() => _isSongListLoading = false);
+        }
+      }
+    });
+  }
+
+  // ✅ NEW: Pre-cache album arts to prevent jank - SAME AS SONGS LIST SCREEN
+  Future<void> _precacheAlbumArts(List<Song> songs) async {
+    for (final song in songs.take(50)) { // Limit to first 50 for performance
+      if (!_albumArtCache.containsKey(song.id)) {
+        try {
+          // Use the same caching logic as your songs list screen
+          final cachedThumbnail = await AlbumArtService.getThumbnail(
+            songId: song.mediaStoreId,
+            songTitle: song.title,
+            artist: song.artist,
+          );
+          if (mounted && cachedThumbnail != null) {
+            _albumArtCache[song.id] = MemoryImage(cachedThumbnail);
+          }
+        } catch (e) {
+          debugPrint('Album art cache error for ${song.title}: $e');
+        }
+      }
+    }
   }
 
   Widget _buildSongListPanel() {
@@ -420,16 +392,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       color: Colors.black,
       child: Column(
         children: [
+          // Header
           Container(
             color: Colors.black,
-            padding: const EdgeInsets.only(top: 50, left: 16, right: 16, bottom: 16),
+            padding: const EdgeInsets.only(top: 25, left: 20, right: 20, bottom: 25),
             child: Row(
               children: [
                 IconButton(
                   icon: const Icon(Icons.arrow_back, color: Colors.white),
                   onPressed: _toggleSongList,
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 30),
                 const Expanded(
                   child: Text(
                     'Playlist',
@@ -448,70 +421,101 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             ),
           ),
           
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.deepPurple.withOpacity(0.1),
-              border: const Border(
-                bottom: BorderSide(color: Colors.deepPurple, width: 1),
+          // Now Playing Section
+          if (_currentMediaItem != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+              decoration: BoxDecoration(
+                color: Colors.deepPurple.withOpacity(0.1),
+                border: const Border(
+                  bottom: BorderSide(color: Colors.deepPurple, width: 1),
+                ),
               ),
+              child: _buildNowPlayingSection(_currentMediaItem!),
             ),
-            child: _currentMediaItem != null 
-                ? _buildNowPlayingSection(_currentMediaItem!)
-                : const SizedBox(),
-          ),
           
+          // ✅ OPTIMIZED: Use cached songs for immediate display
           Expanded(
-            child: Consumer(
-              builder: (context, ref, child) {
-                final songsAsync = ref.watch(songsProvider);
-                
-                return songsAsync.when(
-                  loading: () => const Center(
-                    child: CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.deepPurple),
-                    ),
-                  ),
-                  error: (error, stack) => Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.error, color: Colors.red, size: 48),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Error loading songs',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        ElevatedButton(
-                          onPressed: () => ref.refresh(songsProvider),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.deepPurple,
-                          ),
-                          child: const Text('Retry'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  data: (songs) {
-                    if (songs.isEmpty) {
-                      return _buildEmptyState();
-                    }
-                    return _buildSongList(songs);
-                  },
-                );
-              },
-            ),
+            child: _buildOptimizedSongList(),
           ),
         ],
       ),
     );
   }
 
-  // ✅ PERFORMANCE FIX: Extract helper methods
+  // ✅ NEW: Ultra-optimized song list using cached data
+  Widget _buildOptimizedSongList() {
+    // ✅ FIRST: Try to use cached songs for instant loading
+    if (_cachedSongs.isNotEmpty && !_isSongListLoading) {
+      final currentSongId = _currentSong?.id;
+      return _OptimizedSongListView(
+        songs: _cachedSongs,
+        currentSongId: currentSongId,
+        scrollController: _scrollController,
+        buildItem: _buildSongListItem,
+      );
+    }
+
+    // ✅ FALLBACK: Use provider if cache is empty
+    return Consumer(
+      builder: (context, ref, child) {
+        final songsAsync = ref.watch(songsProvider);
+        
+        return songsAsync.when(
+          loading: () => const _SongListLoading(),
+          error: (error, stack) => _SongListError(
+            onRetry: () => ref.refresh(songsProvider),
+          ),
+          data: (songs) {
+            if (songs.isEmpty) {
+              return _buildEmptyState();
+            }
+            
+            // Cache the songs for next time
+            if (_cachedSongs.isEmpty) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                setState(() {
+                  _cachedSongs = List.from(songs);
+                });
+                _precacheAlbumArts(songs);
+              });
+            }
+            
+            return _buildOptimizedSongListFromData(songs);
+          },
+        );
+      },
+    );
+  }
+
+  // ✅ NEW: Helper method for data-based song list
+  Widget _buildOptimizedSongListFromData(List<Song> songs) {
+    final currentSongId = _currentSong?.id;
+    
+    return _OptimizedSongListView(
+      songs: songs,
+      currentSongId: currentSongId,
+      scrollController: _scrollController,
+      buildItem: _buildSongListItem,
+    );
+  }
+
+  // ✅ ULTRA-OPTIMIZED: Memoized song list item with caching - LIKE SONGS LIST SCREEN
+  Widget _buildSongListItem(Song song, int index, bool isCurrent) {
+    return _PlayerSongListItem(
+      key: ValueKey('player_song_${song.id}_$index'),
+      song: song,
+      isCurrent: isCurrent,
+      formatDuration: _formatDuration,
+      albumArtCache: _albumArtCache,
+      onTap: () {
+        final songs = _cachedSongs.isNotEmpty ? _cachedSongs : (ref.read(songsProvider).value ?? []);
+        playSong(ref, song, songs);
+        _toggleSongList();
+      },
+    );
+  }
+
   Widget _buildNowPlayingSection(MediaItem mediaItem) {
     final currentSong = _songFromMediaItem(mediaItem);
     return Row(
@@ -527,7 +531,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             size: 40,
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 20),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -553,7 +557,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             ],
           ),
         ),
-        const Icon(Icons.music_note, color: Colors.deepPurple, size: 20),
+        const Icon(Icons.music_note, color: Colors.deepPurple, size: 30),
       ],
     );
   }
@@ -600,20 +604,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSongList(List<Song> songs) {
-    final currentSongId = _currentSong?.id;
-    
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: songs.length,
-      itemBuilder: (context, index) {
-        final song = songs[index];
-        final isCurrent = currentSongId == song.id;
-        return _buildSongListItem(song, index, isCurrent);
-      },
     );
   }
 
@@ -680,7 +670,7 @@ For quick contact, copy the email above or use the "Contact Support" button (ope
     }
   }
 
-  // ✅ UI COMPONENTS (Same as before but with performance fixes)
+  // UI COMPONENTS
   Widget _buildModernAppBar(Song song) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -984,7 +974,7 @@ For quick contact, copy the email above or use the "Contact Support" button (ope
 
   Widget _buildModernControls(bool isPlaying) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 34),
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 18),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
@@ -1319,7 +1309,6 @@ For quick contact, copy the email above or use the "Contact Support" button (ope
 
   @override
   Widget build(BuildContext context) {
-    // ✅ PERFORMANCE FIX: Use cached values instead of streams in build
     final displaySong = _currentSong;
     final isPlaying = _isPlaying;
 
@@ -1419,6 +1408,359 @@ For quick contact, copy the email above or use the "Contact Support" button (ope
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ✅ ULTRA-PERFORMANT PLAYER SONG LIST ITEM (Like SongsListScreen)
+class _PlayerSongListItem extends StatefulWidget {
+  final Song song;
+  final bool isCurrent;
+  final String Function(Duration) formatDuration;
+  final Map<String, ImageProvider> albumArtCache;
+  final VoidCallback onTap;
+
+  const _PlayerSongListItem({
+    required Key key,
+    required this.song,
+    required this.isCurrent,
+    required this.formatDuration,
+    required this.albumArtCache,
+    required this.onTap,
+  }) : super(key: key);
+
+  @override
+  State<_PlayerSongListItem> createState() => _PlayerSongListItemState();
+}
+
+class _PlayerSongListItemState extends State<_PlayerSongListItem> 
+    with AutomaticKeepAliveClientMixin {
+  
+  // ✅ CACHE THE BUILT WIDGET FOR MAXIMUM PERFORMANCE
+  Widget? _cachedWidget;
+  
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    
+    // ✅ RETURN CACHED WIDGET TO AVOID EXPENSIVE REBUILDS
+    if (_cachedWidget != null) {
+      return _cachedWidget!;
+    }
+    
+    _cachedWidget = _buildHighQualityItem();
+    return _cachedWidget!;
+  }
+  
+  Widget _buildHighQualityItem() {
+    return RepaintBoundary(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+        decoration: BoxDecoration(
+          color: widget.isCurrent 
+              ? Colors.deepPurple.withOpacity(0.3)
+              : Colors.grey[900]?.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(12),
+          border: widget.isCurrent 
+              ? Border.all(color: Colors.deepPurple.shade400, width: 1)
+              : null,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: widget.onTap,
+            borderRadius: BorderRadius.circular(12),
+            splashColor: Colors.deepPurple.withOpacity(0.3),
+            highlightColor: Colors.deepPurple.withOpacity(0.2),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  // ✅ OPTIMIZED ALBUM ART WITH CACHING
+                  Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      color: Colors.grey[800],
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: _PlayerAlbumArt(
+                        song: widget.song,
+                        albumArtCache: widget.albumArtCache,
+                        size: 50,
+                      ),
+                    ),
+                  ),
+                  
+                  const SizedBox(width: 12),
+                  
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.song.title,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: widget.isCurrent ? FontWeight.bold : FontWeight.normal,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          widget.song.artist,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  widget.isCurrent
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.deepPurple,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text(
+                            'PLAYING',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        )
+                      : Text(
+                          widget.formatDuration(Duration(milliseconds: widget.song.duration)),
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            fontSize: 12,
+                          ),
+                        ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ✅ OPTIMIZED PLAYER ALBUM ART WITH CACHING
+class _PlayerAlbumArt extends StatefulWidget {
+  final Song song;
+  final Map<String, ImageProvider> albumArtCache;
+  final double size;
+
+  const _PlayerAlbumArt({
+    required this.song,
+    required this.albumArtCache,
+    required this.size,
+  });
+
+  @override
+  State<_PlayerAlbumArt> createState() => _PlayerAlbumArtState();
+}
+
+class _PlayerAlbumArtState extends State<_PlayerAlbumArt> {
+  ImageProvider? _cachedImage;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAlbumArt();
+  }
+
+  void _loadAlbumArt() async {
+    if (_isLoading) return;
+    
+    // ✅ FIRST CHECK CACHE
+    if (widget.albumArtCache.containsKey(widget.song.id)) {
+      if (mounted) {
+        setState(() {
+          _cachedImage = widget.albumArtCache[widget.song.id];
+        });
+      }
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    
+    try {
+      // ✅ USE THE SAME PRELOADING TECHNIQUE AS SONGS LIST SCREEN
+      final cachedThumbnail = await AlbumArtService.getThumbnail(
+        songId: widget.song.mediaStoreId,
+        songTitle: widget.song.title,
+        artist: widget.song.artist,
+      );
+      
+      if (mounted && cachedThumbnail != null) {
+        final image = MemoryImage(cachedThumbnail);
+        widget.albumArtCache[widget.song.id] = image;
+        setState(() {
+          _cachedImage = image;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _cachedImage != null
+        ? Image(
+            image: _cachedImage!,
+            width: widget.size,
+            height: widget.size,
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.medium,
+            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+              if (wasSynchronouslyLoaded) {
+                return child;
+              }
+              return AnimatedOpacity(
+                opacity: frame == null ? 0 : 1,
+                duration: const Duration(milliseconds: 200),
+                child: child,
+              );
+            },
+            errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
+          )
+        : _buildPlaceholder();
+  }
+
+  Widget _buildPlaceholder() {
+    return Container(
+      width: widget.size,
+      height: widget.size,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.grey.shade800,
+            Colors.grey.shade700,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Icon(
+        Icons.music_note,
+        color: Colors.grey.shade600,
+        size: widget.size * 0.4,
+      ),
+    );
+  }
+}
+
+// ✅ NEW: Optimized Song List View
+class _OptimizedSongListView extends StatelessWidget {
+  final List<Song> songs;
+  final String? currentSongId;
+  final ScrollController scrollController;
+  final Widget Function(Song song, int index, bool isCurrent) buildItem;
+
+  const _OptimizedSongListView({
+    Key? key,
+    required this.songs,
+    required this.currentSongId,
+    required this.scrollController,
+    required this.buildItem,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      controller: scrollController,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: songs.length,
+      // ✅ CRITICAL: Add itemExtent for maximum performance
+      itemExtent: 70,
+      // ✅ CRITICAL: Optimize scrolling physics
+      physics: const BouncingScrollPhysics(),
+      // ✅ CRITICAL: Add repaint boundaries
+      addRepaintBoundaries: true,
+      // ✅ CRITICAL: Add automatic keep alive
+      addAutomaticKeepAlives: true,
+      itemBuilder: (context, index) {
+        final song = songs[index];
+        final isCurrent = currentSongId == song.id;
+        return buildItem(song, index, isCurrent);
+      },
+    );
+  }
+}
+
+// ✅ NEW: Loading Widget
+class _SongListLoading extends StatelessWidget {
+  const _SongListLoading({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: CircularProgressIndicator(
+        valueColor: AlwaysStoppedAnimation<Color>(Colors.deepPurple),
+      ),
+    );
+  }
+}
+
+// ✅ NEW: Error Widget
+class _SongListError extends StatelessWidget {
+  final VoidCallback onRetry;
+
+  const _SongListError({Key? key, required this.onRetry}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error, color: Colors.red, size: 48),
+          const SizedBox(height: 16),
+          const Text(
+            'Error loading songs',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ElevatedButton(
+            onPressed: onRetry,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepPurple,
+            ),
+            child: const Text('Retry'),
+          ),
+        ],
       ),
     );
   }

@@ -43,6 +43,7 @@ class MusicPlayerNotifier extends StateNotifier<MusicPlayerState> {
       currentQueue: queue,
       isPlaying: true,
       position: Duration.zero,
+      duration: Duration(milliseconds: song.duration),
     );
   }
 
@@ -53,6 +54,7 @@ class MusicPlayerNotifier extends StateNotifier<MusicPlayerState> {
       currentQueue: playlist,
       isPlaying: true,
       position: Duration.zero,
+      duration: Duration(milliseconds: playlist.first.duration),
     );
   }
 

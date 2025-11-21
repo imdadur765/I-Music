@@ -1,10 +1,11 @@
-// lib/services/background_audio_service.dart - SWIPE KILL FIXED + PERFORMANCE OPTIMIZED
+// lib/services/background_audio_service.dart - SWIPE KILL FIXED VERSION
 import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,70 +21,74 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
   bool _isDisposed = false;
   bool _isRestoringSession = false;
 
-  // ✅ PERFORMANCE: Single completer for initialization
   final Completer<void> _initializationCompleter = Completer<void>();
 
-  // ✅ SWIPE KILL PROTECTION - Optimized with static final
-  static final _swipeKillFlags = <String, bool>{
-    'wasAppKilled': false,
-    'isServiceRunning': false,
-  };
+  // ✅ SWIPE KILL PROTECTION - Track if app was killed
+  static bool _wasAppKilled = false;
+  static bool _isServiceRunning = false;
 
-  // ✅ PERFORMANCE: Cache for MediaItems to avoid repeated conversions
-  final Map<String, MediaItem> _mediaItemCache = {};
-  final Map<String, Future<MediaItem>> _pendingMediaItemRequests = {};
-
-  // ✅ PERFORMANCE: Stream controllers for efficient state management
-  final _sessionUpdateController = StreamController<void>.broadcast();
+  // Streams
+  Stream<Duration> get durationStream => _player.durationStream.where((duration) => duration != null).cast<Duration>();
+  Stream<Duration> get positionStream => _player.positionStream;
+  Stream<Duration> get bufferedPositionStream => _player.bufferedPositionStream;
+  Stream<ProcessingState> get processingStateStream => _player.processingStateStream;
+  Stream<PlayerState> get playerStateStream => _player.playerStateStream;
   
-  // ✅ LIFETIME SESSION KEYS - OPTIMIZED
-  static const String _sessionKey = 'audio_session_permanent';
-  static const String _queueKey = 'audio_queue_permanent'; 
-  static const String _positionKey = 'audio_position_permanent';
-  static const String _isPlayingKey = 'audio_is_playing_permanent';
-  static const String _wasKilledKey = 'audio_was_killed_permanent';
+  Duration get position => _player.position;
+  Duration? get duration => _player.duration;
+
+  // ✅ LIFETIME SESSION KEYS - NEVER EXPIRES
+  static const String _sessionKey = 'audio_session_data_lifetime';
+  static const String _queueKey = 'audio_queue_data_lifetime'; 
+  static const String _positionKey = 'audio_position_lifetime';
+  static const String _isPlayingKey = 'audio_is_playing_lifetime';
+  static const String _wasKilledKey = 'audio_was_killed_flag';
 
   BackgroundAudioHandler() : _player = AudioPlayer() {
-    _swipeKillFlags['isServiceRunning'] = true;
+    _isServiceRunning = true;
     _initializePlayer();
   }
 
-  // ✅ OPTIMIZED SWIPE KILL DETECTION
+  // ✅ SWIPE KILL DETECTION METHODS
   static Future<void> markAppKilled() async {
-    _swipeKillFlags['wasAppKilled'] = true;
+    _wasAppKilled = true;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_wasKilledKey, true);
+    debugPrint('🔴 SWIPE KILL: App killed flag set');
   }
 
   static Future<void> clearAppKilledFlag() async {
-    _swipeKillFlags['wasAppKilled'] = false;
+    _wasAppKilled = false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_wasKilledKey);
+    debugPrint('🟢 SWIPE KILL: App killed flag cleared');
   }
 
   static Future<bool> wasAppKilled() async {
-    if (_swipeKillFlags['wasAppKilled']!) return true;
+    if (_wasAppKilled) return true;
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_wasKilledKey) ?? false;
   }
 
-  // ✅ PERFORMANCE OPTIMIZED: Batch volume operations
   Future<void> setVolume(double volume) async {
     await _player.setVolume(volume);
   }
 
-  // ✅ OPTIMIZED INITIALIZATION
+  // ✅ SWIPE KILL AWARE INITIALIZATION
   Future<void> _initializePlayer() async {
     if (_isInitialized || _isDisposed) return;
 
     try {
-      // ✅ Check swipe kill status first
+      debugPrint('🔄 SWIPE KILL INIT: Starting audio handler...');
+      
+      // ✅ Check if app was killed by swipe
       final killed = await wasAppKilled();
       if (killed) {
+        debugPrint('🔄 SWIPE KILL DETECTED: Restoring from killed state...');
         await clearAppKilledFlag();
       }
       
-      // ✅ Configure audio session
+      // ✅ Audio session setup with SWIPE KILL protection
       final session = await AudioSession.instance;
       await session.configure(const AudioSessionConfiguration(
         avAudioSessionCategory: AVAudioSessionCategory.playback,
@@ -97,16 +102,18 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
         androidWillPauseWhenDucked: true,
       ));
 
-      // ✅ Start session restoration and listeners in parallel
-      await Future.wait([
-        SharedPreferences.getInstance().then(_restorePreviousSession),
-        _setupAudioListeners(),
-      ]);
+      debugPrint('🎵 Audio session configured');
+
+      // ✅ SWIPE KILL AWARE SESSION RESTORATION
+      unawaited(SharedPreferences.getInstance().then(_restorePreviousSession));
       
+      _setupAudioListeners();
       _isInitialized = true;
       _initializationCompleter.complete();
       
+      debugPrint('✅ SWIPE KILL HANDLER: Fully initialized');
     } catch (e) {
+      debugPrint('❌ SWIPE KILL INIT ERROR: $e');
       if (!_initializationCompleter.isCompleted) {
         _initializationCompleter.complete();
       }
@@ -114,29 +121,33 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
     }
   }
 
-  // ✅ OPTIMIZED SESSION RESTORATION
+  // ✅ SWIPE KILL RESISTANT SESSION RESTORATION
   Future<void> _restorePreviousSession(SharedPreferences prefs) async {
     if (_isRestoringSession) return;
     
     _isRestoringSession = true;
     try {
-      // ✅ Quick check for session existence
+      debugPrint('🔄 SWIPE KILL RESTORE: Attempting to restore session...');
+      
+      // ✅ Check if lifetime session exists
       if (!prefs.containsKey(_sessionKey)) {
+        debugPrint('📭 No lifetime session found - FRESH START');
         _isRestoringSession = false;
         return;
       }
 
       final sessionData = prefs.getString(_sessionKey);
       if (sessionData == null || sessionData.isEmpty) {
-        await _clearSessionData(prefs);
+        debugPrint('📭 Empty lifetime session data');
         _isRestoringSession = false;
         return;
       }
 
-      // ✅ Restore queue first
+      // ✅ RESTORE QUEUE FROM PERMANENT STORAGE
       await _restoreQueueFromStorage(prefs);
       
       if (_currentQueue.isEmpty) {
+        debugPrint('❌ No songs in lifetime queue');
         await _clearSessionData(prefs);
         _isRestoringSession = false;
         return;
@@ -144,54 +155,72 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
 
       final sessionMap = json.decode(sessionData) as Map<String, dynamic>;
       final currentSongId = sessionMap['currentSongId'] as String?;
+      final currentSongTitle = sessionMap['currentSongTitle'] as String?;
+      final currentSongArtist = sessionMap['currentSongArtist'] as String?;
       final currentPosition = prefs.getInt(_positionKey) ?? 0;
 
+      debugPrint('🎵 SWIPE KILL SESSION - Song: $currentSongTitle, Position: $currentPosition ms');
+
       if (currentSongId != null) {
-        // ✅ Efficient song finding
+        // ✅ SMART SONG MATCHING FOR SWIPE KILL RECOVERY
         int songIndex = _currentQueue.indexWhere((song) => song.id == currentSongId);
+        
+        // Fallback matching by title and artist
+        if (songIndex == -1 && currentSongTitle != null) {
+          songIndex = _currentQueue.indexWhere((song) => 
+            song.title == currentSongTitle && song.artist == currentSongArtist
+          );
+        }
         
         if (songIndex != -1) {
           _currentIndex = songIndex;
           final song = _currentQueue[songIndex];
+          
+          debugPrint('🎵 SWIPE KILL RESTORE SUCCESS: ${song.title} at ${currentPosition}ms');
 
-          // ✅ Set media item using cached method
-          final mediaItemValue = await _getCachedMediaItem(song);
+          // ✅ SET MEDIAITEM
+          final mediaItemValue = await _songToMediaItem(song);
           if (!mediaItem.isClosed) {
             mediaItem.value = mediaItemValue;
           }
 
-          // ✅ Set audio sources
+          // ✅ SET AUDIO SOURCES
           final audioSources = _currentQueue.map((s) => AudioSource.uri(Uri.parse(s.uri))).toList();
           await _player.setAudioSources(audioSources, preload: true, initialIndex: songIndex);
 
-          // ✅ Wait for player with timeout
+          // ✅ WAIT FOR PLAYER READY
           await _player.processingStateStream.firstWhere(
             (state) => state == ProcessingState.ready
-          ).timeout(const Duration(seconds: 3));
+          ).timeout(const Duration(seconds: 5));
 
-          // ✅ Restore position and pause
+          // ✅ RESTORE EXACT POSITION
           await _player.seek(Duration(milliseconds: currentPosition));
+          
+          // ✅ ALWAYS PAUSE - NO AUTO PLAY AFTER SWIPE KILL
           await _player.pause();
 
           _updatePlaybackState(_player.playbackEvent);
+          debugPrint('✅ SWIPE KILL SESSION RESTORED! Survived app termination.');
+          
         } else {
+          debugPrint('❌ Song not found in current library after swipe kill');
           await _clearSessionData(prefs);
         }
       }
     } catch (e) {
+      debugPrint('❌ SWIPE KILL RESTORE ERROR: $e');
       await _clearSessionData(prefs);
     } finally {
       _isRestoringSession = false;
     }
   }
 
-  // ✅ PERFORMANCE: Wait for initialization
   Future<void> waitForInitialization() async {
     if (_isInitialized) return;
     await _initializationCompleter.future;
   }
 
-  // ✅ OPTIMIZED SESSION SAVING
+  // ✅ SWIPE KILL RESISTANT SESSION SAVE
   Future<void> _saveCurrentSession() async {
     try {
       if (_currentQueue.isEmpty || _currentIndex >= _currentQueue.length) return;
@@ -199,45 +228,37 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
       final prefs = await SharedPreferences.getInstance();
       final currentSong = _currentQueue[_currentIndex];
       
-      // ✅ Efficient session data
+      // ✅ PERMANENT SESSION DATA - SURVIVES SWIPE KILL
       final sessionData = {
         'currentSongId': currentSong.id,
         'currentSongTitle': currentSong.title,
         'currentSongArtist': currentSong.artist,
+        'savedAt': DateTime.now().toIso8601String(),
       };
 
-      // ✅ Batch save operations
+      // ✅ BATCH SAVE FOR PERFORMANCE
       await Future.wait([
         prefs.setString(_sessionKey, json.encode(sessionData)),
         prefs.setInt(_positionKey, _player.position.inMilliseconds),
         prefs.setBool(_isPlayingKey, _player.playing),
         _saveQueueToStorage(prefs),
       ]);
+      
+      debugPrint('💾 SWIPE KILL SAVE: ${currentSong.title} at ${_player.position.inMilliseconds}ms');
     } catch (e) {
-      // Silent fail - session saving shouldn't break the app
+      debugPrint('❌ SWIPE KILL SAVE ERROR: $e');
     }
   }
 
-  // ✅ OPTIMIZED QUEUE STORAGE
   Future<void> _saveQueueToStorage(SharedPreferences prefs) async {
     try {
-      // ✅ Only save essential song data
-      final queueData = _currentQueue.map((song) => {
-        'id': song.id,
-        'title': song.title,
-        'artist': song.artist,
-        'uri': song.uri,
-        'duration': song.duration,
-        'mediaStoreId': song.mediaStoreId,
-      }).toList();
-      
+      final queueData = _currentQueue.map((song) => song.toJson()).toList();
       await prefs.setString(_queueKey, json.encode(queueData));
     } catch (e) {
-      // Silent fail
+      debugPrint('❌ Error saving queue: $e');
     }
   }
 
-  // ✅ OPTIMIZED QUEUE RESTORATION
   Future<void> _restoreQueueFromStorage(SharedPreferences prefs) async {
     try {
       final queueData = prefs.getString(_queueKey);
@@ -245,86 +266,58 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
       if (queueData != null && queueData.isNotEmpty) {
         final List<dynamic> queueList = json.decode(queueData);
         _currentQueue.clear();
-        
-        // ✅ Efficient song reconstruction
-        _currentQueue.addAll(queueList.map((data) => Song(
-          id: data['id'] as String,
-          title: data['title'] as String,
-          artist: data['artist'] as String,
-          uri: data['uri'] as String,
-          duration: data['duration'] as int,
-          mediaStoreId: data['mediaStoreId'] as int,
-          album: data['album'] as String?,
-          albumArt: data['albumArt'] as String?,
-          genre: data['genre'] as String?,
-          trackNumber: (data['trackNumber'] as int?) ?? 0,
-          year: (data['year'] as int?) ?? 0,
-          composer: data['composer'] as String?,
-          playCount: (data['playCount'] as int?) ?? 0,
-          lastPlayed: data['lastPlayed'] != null 
-              ? DateTime.parse(data['lastPlayed'] as String) 
-              : DateTime.now(),
-          dateAdded: data['dateAdded'] != null 
-              ? DateTime.parse(data['dateAdded'] as String) 
-              : DateTime.now(),
-          isFavorite: (data['isFavorite'] as bool?) ?? false,
-        )));
+        _currentQueue.addAll(queueList.map((data) => Song.fromJson(data)));
+        debugPrint('📂 Swipe kill queue restored with ${_currentQueue.length} songs');
       }
     } catch (e) {
+      debugPrint('❌ Error restoring queue: $e');
       _currentQueue.clear();
     }
   }
 
-  // ✅ OPTIMIZED SESSION CLEARING
+  // ✅ SWIPE KILL AWARE SESSION CLEAR
   Future<void> _clearSessionData(SharedPreferences prefs) async {
     try {
-      await Future.wait([
-        prefs.remove(_sessionKey),
-        prefs.remove(_positionKey),
-        prefs.remove(_isPlayingKey),
-        prefs.remove(_queueKey),
-        prefs.remove(_wasKilledKey),
-      ]);
+      await prefs.remove(_sessionKey);
+      await prefs.remove(_positionKey);
+      await prefs.remove(_isPlayingKey);
+      await prefs.remove(_queueKey);
+      await prefs.remove(_wasKilledKey);
+      debugPrint('🗑️ SWIPE KILL SESSION: Cleared permanently');
     } catch (e) {
-      // Silent fail
+      debugPrint('❌ Error clearing session data: $e');
     }
   }
 
-  // ✅ PERFORMANCE OPTIMIZED AUDIO LISTENERS
-  Future<void> _setupAudioListeners() async {
-    // ✅ Debounced session saving
-    Timer? _saveTimer;
-    
+  void _setupAudioListeners() {
     _player.playbackEventStream.listen((event) {
       _updatePlaybackState(event);
-      
-      // ✅ Debounce session saves to avoid excessive I/O
-      _saveTimer?.cancel();
-      _saveTimer = Timer(const Duration(seconds: 2), _saveCurrentSession);
+      _saveCurrentSession(); // ✅ Auto-save on state changes
     });
 
     _player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) {
         _handleTrackCompletion();
       }
+      _saveCurrentSession();
     });
 
     _player.currentIndexStream.listen((index) {
       if (index != null && index < _currentQueue.length) {
         _currentIndex = index;
         _updateCurrentMediaItem();
+        _saveCurrentSession();
       }
     });
 
-    // ✅ Optimized position streaming - less frequent updates
+    // ✅ OPTIMIZED: Save every 15 seconds while playing
     _player.positionStream.listen((position) {
-      if (_player.playing && position.inSeconds % 10 == 0) {
+      if (_player.playing && position.inSeconds % 15 == 0) {
         _saveCurrentSession();
       }
     });
   }
 
-  // ✅ OPTIMIZED PLAYBACK STATE UPDATES
   void _updatePlaybackState(PlaybackEvent event) {
     if (playbackState.isClosed || _isDisposed) return;
 
@@ -356,7 +349,7 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
         updateTime: DateTime.now(),
       ));
     } catch (e) {
-      // Silent fail - playback state updates shouldn't break the app
+      debugPrint('❌ Error in _updatePlaybackState: $e');
     }
   }
 
@@ -381,49 +374,47 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
 
   void _updateCurrentMediaItem() {
     if (_currentIndex < _currentQueue.length && !mediaItem.isClosed) {
-      _getCachedMediaItem(_currentQueue[_currentIndex]).then((mediaItemValue) {
+      _songToMediaItem(_currentQueue[_currentIndex]).then((mediaItemValue) {
         mediaItem.value = mediaItemValue;
       });
     }
   }
 
-  // ✅ PERFORMANCE: CACHED MEDIA ITEM CREATION
-  Future<MediaItem> _getCachedMediaItem(Song song) async {
-    // ✅ Return cached media item if available
-    if (_mediaItemCache.containsKey(song.id)) {
-      return _mediaItemCache[song.id]!;
-    }
-
-    // ✅ If request already pending, return that future
-    if (_pendingMediaItemRequests.containsKey(song.id)) {
-      return _pendingMediaItemRequests[song.id]!;
-    }
-
-    // ✅ Create new media item and cache it
-    final completer = Completer<MediaItem>();
-    _pendingMediaItemRequests[song.id] = completer.future;
-
+  // ✅ SWIPE KILL TEST METHOD
+  void testMediaSession() {
     try {
-      final mediaItem = await _songToMediaItem(song);
-      _mediaItemCache[song.id] = mediaItem;
-      completer.complete(mediaItem);
-      _pendingMediaItemRequests.remove(song.id);
-      return mediaItem;
+      debugPrint('🎯 Testing MediaSession with Swipe Kill protection...');
+      if (_currentIndex < _currentQueue.length) {
+        final song = _currentQueue[_currentIndex];
+        debugPrint('🎵 Current Song: ${song.title}');
+        _updateCurrentMediaItem();
+        _updatePlaybackState(_player.playbackEvent);
+        debugPrint('✅ MediaSession test completed - Swipe Kill Ready');
+      }
     } catch (e) {
-      completer.completeError(e);
-      _pendingMediaItemRequests.remove(song.id);
-      rethrow;
+      debugPrint('❌ MediaSession test error: $e');
     }
   }
 
-  // ✅ OPTIMIZED CUSTOM ACTIONS
   @override
-  Future<dynamic> customAction(String name, [dynamic extras]) async {
-    switch (name) {
+ Future<dynamic> customAction(String name, [dynamic extras]) async {
+  debugPrint('🎛️ Custom action: $name');
+
+  switch (name) {
+    case 'setSongWithQueue':
+      final songData = extras['song'] as Map<String, dynamic>;
+      final queueData = extras['queue'] as List<dynamic>;
+      
+      final song = Song.fromJson(songData);
+      final queue = queueData.map((data) => Song.fromJson(data)).toList();
+      
+      await setSong(song, queue);
+      return 'song_and_queue_set';
+
       case 'setVolume':
-        final volume = extras['volume'] as double;
-        await setVolume(volume);
-        return 'volume_set';
+      final volume = extras['volume'] as double;
+      await setVolume(volume);
+      return 'volume_set';
 
       case 'stopFromNative':
         await stop();
@@ -445,14 +436,13 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
         await _safeStopPlayer();
         _currentQueue.clear();
         _currentIndex = 0;
-        _mediaItemCache.clear(); // ✅ Clear cache
         if (!mediaItem.isClosed) {
           mediaItem.value = null;
         }
         _updatePlaybackState(_player.playbackEvent);
         return 'cleared_for_close_button';
 
-      // ✅ SWIPE KILL ACTIONS
+      // ✅ SWIPE KILL SPECIFIC ACTIONS
       case 'markAppKilled':
         await markAppKilled();
         return 'swipe_kill_marked';
@@ -464,7 +454,7 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
       case 'checkSwipeKillStatus':
         return {
           'wasKilled': await wasAppKilled(),
-          'isServiceRunning': _swipeKillFlags['isServiceRunning'],
+          'isServiceRunning': _isServiceRunning,
           'hasSession': (await SharedPreferences.getInstance()).containsKey(_sessionKey),
         };
 
@@ -482,14 +472,13 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
       'isPlaying': _player.playing,
       'queueLength': _currentQueue.length,
       'wasAppKilled': await wasAppKilled(),
-      'isServiceRunning': _swipeKillFlags['isServiceRunning'],
+      'isServiceRunning': _isServiceRunning,
     };
   }
 
-  // ✅ PERFORMANCE OPTIMIZED MEDIA ITEM CREATION
+  // Album Art and MediaItem methods
   Future<MediaItem> _songToMediaItem(Song song) async {
     try {
-      // ✅ Use cached album art if available
       Uint8List? albumArtBytes = await AlbumArtService.getAlbumArt(
         songId: song.mediaStoreId,
         songTitle: song.title,
@@ -500,7 +489,7 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
 
       if (albumArtBytes != null && albumArtBytes.isNotEmpty) {
         final tempDir = await getTemporaryDirectory();
-        final tempFile = File('${tempDir.path}/album_art_${song.mediaStoreId}.jpg');
+        final tempFile = File('${tempDir.path}/temp_album_art_${song.mediaStoreId}.jpg');
         await tempFile.writeAsBytes(albumArtBytes);
         artUri = tempFile.uri;
       }
@@ -515,11 +504,10 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
         extras: {
           'uri': song.uri,
           'mediaStoreId': song.mediaStoreId.toString(),
-          'song_object': song, // ✅ Store song object for quick access
         },
       );
     } catch (e) {
-      // ✅ Fallback without album art
+      debugPrint('❌ Error creating MediaItem: $e');
       return MediaItem(
         id: song.id,
         title: song.title,
@@ -531,46 +519,48 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
     }
   }
 
-  // ✅ OPTIMIZED SONG SETTING
   Future<void> setSong(Song song, List<Song> queue) async {
     try {
       await waitForInitialization();
       
+      debugPrint('🎵 Setting song: ${song.title}');
+
       if (song.uri.isEmpty) throw ArgumentError('Song URI cannot be empty');
       if (queue.isEmpty) throw ArgumentError('Queue cannot be empty');
 
       final initialIndex = queue.indexWhere((s) => s.id == song.id);
       if (initialIndex == -1) throw ArgumentError('Target song not found in queue');
 
-      _currentQueue
-        ..clear()
-        ..addAll(queue);
+      _currentQueue..clear()..addAll(queue);
       _currentIndex = initialIndex;
 
       await _safeStopPlayer();
 
-      // ✅ Use cached media item
-      final currentMediaItem = await _getCachedMediaItem(song);
+      // Set MediaItem
+      final currentMediaItem = await _songToMediaItem(song);
       if (!mediaItem.isClosed) {
         mediaItem.value = currentMediaItem;
       }
 
-      // ✅ Set audio sources efficiently
+      // Set audio source
       final audioSources = queue.map((s) => AudioSource.uri(Uri.parse(s.uri))).toList();
       await _player.setAudioSources(audioSources, preload: true, initialIndex: initialIndex);
 
       await _player.setVolume(1.0);
       
-      // ✅ Wait for player with timeout
+      // Wait for player to be ready
       await _player.processingStateStream.firstWhere(
         (state) => state == ProcessingState.ready
-      ).timeout(const Duration(seconds: 3));
+      ).timeout(const Duration(seconds: 5));
       
       await _player.play();
+      debugPrint('▶️ Starting playback for new song');
+
       await _saveCurrentSession();
       _updatePlaybackState(_player.playbackEvent);
 
     } catch (e) {
+      debugPrint('❌ Error setting song: $e');
       rethrow;
     }
   }
@@ -584,11 +574,10 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
         await _player.seek(Duration.zero);
       }
     } catch (e) {
-      // Silent fail
+      debugPrint('⚠️ Warning during player stop: $e');
     }
   }
 
-  // ✅ OPTIMIZED AUDIO CONTROL METHODS
   @override
   Future<void> play() async {
     try {
@@ -596,7 +585,7 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
       _updatePlaybackState(_player.playbackEvent);
       await _saveCurrentSession();
     } catch (e) {
-      // Silent fail
+      debugPrint('❌ Error in play: $e');
     }
   }
 
@@ -607,7 +596,7 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
       _updatePlaybackState(_player.playbackEvent);
       await _saveCurrentSession();
     } catch (e) {
-      // Silent fail
+      debugPrint('❌ Error in pause: $e');
     }
   }
 
@@ -618,7 +607,7 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
       _updatePlaybackState(_player.playbackEvent);
       await _saveCurrentSession();
     } catch (e) {
-      // Silent fail
+      debugPrint('❌ Error in seek: $e');
     }
   }
 
@@ -633,7 +622,7 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
         await stop();
       }
     } catch (e) {
-      // Silent fail
+      debugPrint('❌ Error in skipToNext: $e');
     }
   }
 
@@ -650,7 +639,7 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
         await _saveCurrentSession();
       }
     } catch (e) {
-      // Silent fail
+      debugPrint('❌ Error in skipToPrevious: $e');
     }
   }
 
@@ -659,21 +648,19 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
     try {
       await _player.stop();
       _updatePlaybackState(_player.playbackEvent);
+      // ❌ DON'T clear session on stop - keep it for swipe kill recovery
     } catch (e) {
-      // Silent fail
+      debugPrint('❌ Error in stop: $e');
     }
   }
 
-  // ✅ OPTIMIZED DISPOSE
   Future<void> dispose() async {
     _isDisposed = true;
-    _swipeKillFlags['isServiceRunning'] = false;
-    await _saveCurrentSession();
+    _isServiceRunning = false;
+    await _saveCurrentSession(); // ✅ Save before dispose for swipe kill
     await _player.dispose();
-    await _sessionUpdateController.close();
   }
 
-  // ✅ EFFICIENT GETTERS
   Song? get currentSong {
     if (_currentIndex < _currentQueue.length) {
       return _currentQueue[_currentIndex];
@@ -683,14 +670,4 @@ class BackgroundAudioHandler extends BaseAudioHandler with SeekHandler {
 
   List<Song> get currentQueue => _currentQueue;
   int get currentIndex => _currentIndex;
-  
-  // ✅ PERFORMANCE: Stream getters
-  Stream<Duration> get durationStream => _player.durationStream.where((duration) => duration != null).cast<Duration>();
-  Stream<Duration> get positionStream => _player.positionStream;
-  Stream<Duration> get bufferedPositionStream => _player.bufferedPositionStream;
-  Stream<ProcessingState> get processingStateStream => _player.processingStateStream;
-  Stream<PlayerState> get playerStateStream => _player.playerStateStream;
-  
-  Duration get position => _player.position;
-  Duration? get duration => _player.duration;
 }

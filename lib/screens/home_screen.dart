@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'songs_list_screen.dart';
@@ -81,38 +83,163 @@ class _BottomNavBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return BottomNavigationBar(
-      currentIndex: currentIndex,
-      onTap: (index) {
-        // ✅ Only update if index changed
-        if (currentIndex != index) {
-          ref.read(currentTabIndexProvider.notifier).state = index;
-        }
-      },
-      type: BottomNavigationBarType.fixed,
-      backgroundColor: Colors.black,
-      selectedItemColor: Colors.deepPurple,
-      unselectedItemColor: Colors.grey,
-      selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600),
-      unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal),
-      items: const [
-        BottomNavigationBarItem(
-          icon: Icon(Icons.music_note),
-          label: 'Songs',
+    // Define colors for each tab
+    final List<Color> activeColors = [
+      Colors.lightBlueAccent, // Songs - Light Blue
+      Colors.redAccent,       // Artists - Red
+      Colors.greenAccent,     // Albums - Green
+      Colors.orangeAccent,    // Favorites - Orange
+    ];
+
+    final List<Color> inactiveColors = [
+      Colors.lightBlueAccent.withOpacity(0.5),
+      Colors.redAccent.withOpacity(0.5),
+      Colors.greenAccent.withOpacity(0.5),
+      Colors.orangeAccent.withOpacity(0.5),
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.5),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _NavBarButton(
+              icon: Icons.music_note,
+              label: 'Songs',
+              isActive: currentIndex == 0,
+              activeColor: activeColors[0],
+              inactiveColor: inactiveColors[0],
+              onTap: () => _onTabTapped(0, ref),
+            ),
+            _NavBarButton(
+              icon: Icons.person,
+              label: 'Artists',
+              isActive: currentIndex == 1,
+              activeColor: activeColors[1],
+              inactiveColor: inactiveColors[1],
+              onTap: () => _onTabTapped(1, ref),
+            ),
+            _NavBarButton(
+              icon: Icons.album,
+              label: 'Albums',
+              isActive: currentIndex == 2,
+              activeColor: activeColors[2],
+              inactiveColor: inactiveColors[2],
+              onTap: () => _onTabTapped(2, ref),
+            ),
+            _NavBarButton(
+              icon: Icons.favorite,
+              label: 'Favorites',
+              isActive: currentIndex == 3,
+              activeColor: activeColors[3],
+              inactiveColor: inactiveColors[3],
+              onTap: () => _onTabTapped(3, ref),
+            ),
+          ],
         ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.person),
-          label: 'Artists',
+      ),
+    );
+  }
+
+  void _onTabTapped(int index, WidgetRef ref) {
+    if (currentIndex != index) {
+      ref.read(currentTabIndexProvider.notifier).state = index;
+    }
+  }
+}
+
+// Custom navigation bar button widget
+class _NavBarButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isActive;
+  final Color activeColor;
+  final Color inactiveColor;
+  final VoidCallback onTap;
+
+  const _NavBarButton({
+    required this.icon,
+    required this.label,
+    required this.isActive,
+    required this.activeColor,
+    required this.inactiveColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2.0),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(20), // More rounded corners
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(20), // More rounded corners
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2), // Reduced padding
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20), // More rounded corners
+                color: isActive 
+                    ? activeColor.withOpacity(0.15)
+                    : Colors.transparent,
+                border: isActive
+                    ? Border.all(
+                        color: activeColor.withOpacity(0.3),
+                        width: 1.5,
+                      )
+                    : null,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6), // Reduced padding
+                    decoration: BoxDecoration(
+                      color: isActive 
+                          ? activeColor.withOpacity(0.2)
+                          : inactiveColor.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isActive ? activeColor : inactiveColor,
+                        width: isActive ? 2 : 1.5,
+                      ),
+                    ),
+                    child: Icon(
+                      icon,
+                      size: 18, // Smaller icon size
+                      color: isActive ? activeColor : inactiveColor,
+                    ),
+                  ),
+                  const SizedBox(height: 3), // Reduced spacing
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: isActive ? activeColor : inactiveColor,
+                      fontSize: 10, // Smaller font size
+                      fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.album),
-          label: 'Albums',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.favorite),
-          label: 'Favorites',
-        ),
-      ],
+      ),
     );
   }
 }
